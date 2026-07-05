@@ -144,6 +144,19 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: 'Models exposed by this channel',
     },
   },
+  59: {
+    id: 59,
+    name: CHANNEL_TYPES[59],
+    icon: 'openai',
+    defaultBaseUrl: 'https://opencode.ai/zen/go',
+    hints: {
+      baseUrl: 'Default: https://opencode.ai/zen/go',
+      key: 'OpenCode Go API key',
+      models: 'Use Sync Models or select the built-in OpenCode Go models',
+      other:
+        'Routes models to OpenAI or Anthropic automatically; model protocol patterns can be overridden.',
+    },
+  },
 }
 
 /**

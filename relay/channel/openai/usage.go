@@ -192,6 +192,7 @@ func usageFromInferenceCost(event *inferenceCostEvent) *dto.Usage {
 		ClaudeCacheCreation5mTokens: normalized.CacheWrite5mTokens,
 		ClaudeCacheCreation1hTokens: normalized.CacheWrite1hTokens,
 		Cost:                        event.Cost,
+		UsageSource:                 "inference-cost",
 	}
 	return usage
 }
@@ -236,6 +237,27 @@ func applyUsagePostProcessing(info *relaycommon.RelayInfo, usage *dto.Usage, res
 				usage.PromptTokensDetails.CachedTokens = cachedTokens
 			}
 		}
+	case constant.ChannelTypeOpenCodeGo:
+		if usage.PromptTokensDetails.CachedTokens == 0 {
+			switch {
+			case usage.CachedTokens > 0:
+				usage.PromptTokensDetails.CachedTokens = usage.CachedTokens
+			case usage.InputTokensDetails != nil && usage.InputTokensDetails.CachedTokens > 0:
+				usage.PromptTokensDetails.CachedTokens = usage.InputTokensDetails.CachedTokens
+			case usage.PromptCacheHitTokens > 0:
+				usage.PromptTokensDetails.CachedTokens = usage.PromptCacheHitTokens
+			case len(responseBody) > 0:
+				if cachedTokens, ok := extractCachedTokensFromBody(responseBody); ok {
+					usage.PromptTokensDetails.CachedTokens = cachedTokens
+				} else if cachedTokens, ok := extractMoonshotCachedTokensFromBody(responseBody); ok {
+					usage.PromptTokensDetails.CachedTokens = cachedTokens
+				}
+			}
+		}
+		if usage.PromptCacheHitTokens == 0 {
+			usage.PromptCacheHitTokens = usage.PromptTokensDetails.CachedTokens
+		}
+		usage.CachedTokens = 0
 	}
 }
 

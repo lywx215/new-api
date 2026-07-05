@@ -2642,6 +2642,37 @@ export function ChannelMutateDrawer({
                               />
                             )}
 
+                            {currentType === 59 && (
+                              <FormField
+                                control={form.control}
+                                name='model_protocols'
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>
+                                      {t('Model Protocol Overrides')}
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Textarea
+                                        rows={7}
+                                        placeholder={`{
+  "minimax-*": "anthropic",
+  "qwen3.*": "anthropic",
+  "glm-*": "openai"
+}`}
+                                        {...field}
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      {t(
+                                        'Optional JSON map of exact model IDs or wildcard patterns to openai/anthropic. Exact matches take priority.'
+                                      )}
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            )}
+
                             {currentType === CHANNEL_TYPE_ADVANCED_CUSTOM && (
                               <FormField
                                 control={form.control}

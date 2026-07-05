@@ -455,6 +455,30 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		// prompt/cache fields here, otherwise old upstream payloads may be double-counted.
 		other["input_tokens_total"] = usage.InputTokens
 	}
+	if usage != nil && strings.HasPrefix(usage.UsageSource, "opencodego:") {
+		uncachedInputTokens := usage.PromptTokens
+		if usage.UsageSemantic != "anthropic" {
+			uncachedInputTokens = usage.PromptCacheMissTokens
+			if uncachedInputTokens == 0 {
+				uncachedInputTokens = usage.PromptTokens -
+					usage.PromptTokensDetails.CachedTokens -
+					usage.PromptTokensDetails.CachedCreationTokens
+				if uncachedInputTokens < 0 {
+					uncachedInputTokens = 0
+				}
+			}
+		}
+		other["uncached_input_tokens"] = uncachedInputTokens
+		other["cache_read_tokens"] = usage.PromptTokensDetails.CachedTokens
+		other["cache_write_5m_tokens"] = usage.ClaudeCacheCreation5mTokens
+		other["cache_write_1h_tokens"] = usage.ClaudeCacheCreation1hTokens
+		other["output_tokens"] = usage.CompletionTokens
+		other["reasoning_tokens"] = usage.CompletionTokenDetails.ReasoningTokens
+		other["usage_source"] = usage.UsageSource
+		if usage.Cost != nil {
+			other["upstream_cost"] = usage.Cost
+		}
+	}
 	if tieredBillingApplied {
 		InjectTieredBillingInfo(other, relayInfo, tieredResult)
 	}

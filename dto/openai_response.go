@@ -226,6 +226,7 @@ type Usage struct {
 	TotalTokens           int    `json:"total_tokens"`
 	PromptCacheHitTokens  int    `json:"prompt_cache_hit_tokens,omitempty"`
 	PromptCacheMissTokens int    `json:"prompt_cache_miss_tokens,omitempty"`
+	CachedTokens          int    `json:"cached_tokens,omitempty"`
 	UsageSemantic         string `json:"usage_semantic,omitempty"`
 	UsageSource           string `json:"usage_source,omitempty"`
 

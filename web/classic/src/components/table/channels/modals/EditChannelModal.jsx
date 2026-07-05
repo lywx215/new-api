@@ -214,6 +214,7 @@ const EditChannelModal = (props) => {
     upstream_model_update_last_check_time: 0,
     upstream_model_update_last_detected_models: [],
     upstream_model_update_ignored_models: '',
+    model_protocols: '',
   };
   const [batch, setBatch] = useState(false);
   const [multiToSingle, setMultiToSingle] = useState(false);
@@ -924,6 +925,9 @@ const EditChannelModal = (props) => {
             parsedSettings.upstream_model_update_ignored_models,
           )
             ? parsedSettings.upstream_model_update_ignored_models.join(',')
+            : '';
+          data.model_protocols = parsedSettings.model_protocols
+            ? JSON.stringify(parsedSettings.model_protocols, null, 2)
             : '';
         } catch (error) {
           console.error('解析其他设置失败:', error);
@@ -1778,6 +1782,19 @@ const EditChannelModal = (props) => {
       delete settings.vertex_key_type;
     }
 
+    if (localInputs.type === 59) {
+      try {
+        settings.model_protocols = localInputs.model_protocols
+          ? JSON.parse(localInputs.model_protocols)
+          : {};
+      } catch (error) {
+        showError(t('模型协议覆盖必须是合法的 JSON 格式！'));
+        return;
+      }
+    } else if ('model_protocols' in settings) {
+      delete settings.model_protocols;
+    }
+
     // type === 1 (OpenAI) 或 type === 14 (Claude): 设置字段透传控制（显式保存布尔值）
     if (
       localInputs.type === 1 ||
@@ -2503,6 +2520,24 @@ const EditChannelModal = (props) => {
                       <Form.Switch field='allow_inference_geo' label={t('允许 inference_geo 透传')} checkedText={t('开')} uncheckedText={t('关')} onChange={(value) => handleChannelOtherSettingsChange('allow_inference_geo', value)} extraText={t('inference_geo 字段用于控制 Claude 数据驻留推理区域。默认关闭以避免未经授权透传地域信息')} />
                       <Form.Switch field='allow_speed' label={t('允许 speed 透传')} checkedText={t('开')} uncheckedText={t('关')} onChange={(value) => handleChannelOtherSettingsChange('allow_speed', value)} extraText={t('speed 字段用于控制 Claude 推理速度模式。默认关闭以避免意外切换到 fast 模式')} />
                     </>
+                  )}
+
+                  {inputs.type === 59 && (
+                    <Form.TextArea
+                      field='model_protocols'
+                      label={t('模型协议覆盖')}
+                      placeholder={
+                        '{\n  "minimax-*": "anthropic",\n  "qwen3.*": "anthropic",\n  "glm-*": "openai"\n}'
+                      }
+                      autosize
+                      onChange={(value) =>
+                        handleInputChange('model_protocols', value)
+                      }
+                      extraText={t(
+                        '可选：使用模型 ID 或通配符映射到 openai/anthropic，精确匹配优先。',
+                      )}
+                      showClear
+                    />
                   )}
                 </div>
 

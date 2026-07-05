@@ -3,6 +3,7 @@ package dto
 import (
 	"fmt"
 	"net/url"
+	"path"
 	"strings"
 )
 
@@ -49,6 +50,27 @@ type ChannelOtherSettings struct {
 	UpstreamModelUpdateLastRemovedModels  []string              `json:"upstream_model_update_last_removed_models,omitempty"`  // 上次检测到的可删除模型
 	UpstreamModelUpdateIgnoredModels      []string              `json:"upstream_model_update_ignored_models,omitempty"`       // 手动忽略的模型
 	AdvancedCustom                        *AdvancedCustomConfig `json:"advanced_custom,omitempty"`
+	ModelProtocols                        map[string]string     `json:"model_protocols,omitempty"`
+}
+
+func (s *ChannelOtherSettings) ValidateModelProtocols() error {
+	if s == nil {
+		return nil
+	}
+	for pattern, protocol := range s.ModelProtocols {
+		if strings.TrimSpace(pattern) == "" {
+			return fmt.Errorf("model_protocols contains an empty model pattern")
+		}
+		if _, err := path.Match(strings.ToLower(pattern), "model"); err != nil {
+			return fmt.Errorf("model_protocols pattern %q is invalid: %w", pattern, err)
+		}
+		switch strings.ToLower(strings.TrimSpace(protocol)) {
+		case "openai", "anthropic":
+		default:
+			return fmt.Errorf("model_protocols[%q] must be openai or anthropic", pattern)
+		}
+	}
+	return nil
 }
 
 func (s *ChannelOtherSettings) IsOpenRouterEnterprise() bool {

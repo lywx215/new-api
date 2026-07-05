@@ -178,6 +178,10 @@ export const channelFormSchema = z
       .optional()
       .refine(isOptionalJsonObject, ERROR_MESSAGES.INVALID_JSON),
     advanced_custom: z.string().optional(),
+    model_protocols: z
+      .string()
+      .optional()
+      .refine(isOptionalJsonObject, ERROR_MESSAGES.INVALID_JSON),
     other: z.string().optional(),
     // Multi-key options (not sent to backend directly)
     multi_key_mode: z.enum(['single', 'batch', 'multi_to_single']).optional(),
@@ -349,6 +353,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   upstream_model_update_auto_sync_enabled: false,
   upstream_model_update_ignored_models: '',
   advanced_custom: '',
+  model_protocols: '',
 }
 
 // ============================================================================
@@ -405,6 +410,7 @@ export function transformChannelToFormDefaults(
   let upstreamModelUpdateAutoSyncEnabled = false
   let upstreamModelUpdateIgnoredModels = ''
   let advancedCustom = ''
+  let modelProtocols = ''
 
   if (channel.settings) {
     try {
@@ -432,6 +438,9 @@ export function transformChannelToFormDefaults(
         : ''
       if (parsed.advanced_custom) {
         advancedCustom = stringifyAdvancedCustomConfig(parsed.advanced_custom)
+      }
+      if (parsed.model_protocols) {
+        modelProtocols = JSON.stringify(parsed.model_protocols, null, 2)
       }
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -484,6 +493,7 @@ export function transformChannelToFormDefaults(
     upstream_model_update_auto_sync_enabled: upstreamModelUpdateAutoSyncEnabled,
     upstream_model_update_ignored_models: upstreamModelUpdateIgnoredModels,
     advanced_custom: advancedCustom,
+    model_protocols: modelProtocols,
   }
 }
 
@@ -620,6 +630,12 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     }
   } else if ('advanced_custom' in settingsObj) {
     delete settingsObj.advanced_custom
+  }
+
+  if (formData.type === 59 && formData.model_protocols?.trim()) {
+    settingsObj.model_protocols = JSON.parse(formData.model_protocols)
+  } else if ('model_protocols' in settingsObj) {
+    delete settingsObj.model_protocols
   }
 
   return JSON.stringify(settingsObj)
