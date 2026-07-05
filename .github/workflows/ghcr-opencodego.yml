@@ -1,0 +1,133 @@
+name: Publish GHCR image (OpenCodeGo)
+
+on:
+  push:
+    tags:
+      - 'v*-opencodego*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build'
+        required: true
+        type: string
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/new-api
+
+jobs:
+  build:
+    name: Build and push (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: ${{ github.event_name == 'workflow_dispatch' && 0 || 1 }}
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Resolve version
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            TAG="${{ inputs.tag }}"
+            if ! git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+              echo "::error::Tag '$TAG' does not exist"
+              exit 1
+            fi
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "$TAG" > VERSION
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ env.TAG }}
+
+      - name: Build and push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ env.TAG }}-${{ matrix.arch }}
+            ${{ env.IMAGE_NAME }}:opencodego-${{ matrix.arch }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: mode=max
+          sbom: true
+
+  manifest:
+    name: Publish multi-arch manifests
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Resolve version
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish version manifest
+        run: |
+          docker buildx imagetools create \
+            -t "${IMAGE_NAME}:${TAG}" \
+            "${IMAGE_NAME}:${TAG}-amd64" \
+            "${IMAGE_NAME}:${TAG}-arm64"
+
+      - name: Publish rolling OpenCodeGo manifest
+        run: |
+          docker buildx imagetools create \
+            -t "${IMAGE_NAME}:opencodego" \
+            "${IMAGE_NAME}:opencodego-amd64" \
+            "${IMAGE_NAME}:opencodego-arm64"
+
+      - name: Inspect published image
+        run: docker buildx imagetools inspect "${IMAGE_NAME}:${TAG}"
