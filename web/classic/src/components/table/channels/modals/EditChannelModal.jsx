@@ -27,7 +27,11 @@ import {
   verifyJSON,
 } from '../../../../helpers';
 import { useIsMobile } from '../../../../hooks/common/useIsMobile';
-import { CHANNEL_OPTIONS, MODEL_FETCHABLE_CHANNEL_TYPES } from '../../../../constants';
+import {
+  CHANNEL_OPTIONS,
+  CHANNEL_TYPE_OPENCODE_GO,
+  MODEL_FETCHABLE_CHANNEL_TYPES,
+} from '../../../../constants';
 import {
   SideSheet,
   Space,
@@ -1782,11 +1786,13 @@ const EditChannelModal = (props) => {
       delete settings.vertex_key_type;
     }
 
-    if (localInputs.type === 59) {
+    if (localInputs.type === CHANNEL_TYPE_OPENCODE_GO) {
       try {
-        settings.model_protocols = localInputs.model_protocols
-          ? JSON.parse(localInputs.model_protocols)
-          : {};
+        if (localInputs.model_protocols?.trim()) {
+          settings.model_protocols = JSON.parse(localInputs.model_protocols);
+        } else {
+          delete settings.model_protocols;
+        }
       } catch (error) {
         showError(t('模型协议覆盖必须是合法的 JSON 格式！'));
         return;
@@ -2522,7 +2528,7 @@ const EditChannelModal = (props) => {
                     </>
                   )}
 
-                  {inputs.type === 59 && (
+                  {inputs.type === CHANNEL_TYPE_OPENCODE_GO && (
                     <Form.TextArea
                       field='model_protocols'
                       label={t('模型协议覆盖')}

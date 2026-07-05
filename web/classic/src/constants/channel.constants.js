@@ -17,6 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
+export const CHANNEL_TYPE_OPENCODE_GO = 59;
+
 export const CHANNEL_OPTIONS = [
   { value: 1, color: 'green', label: 'OpenAI' },
   {
@@ -190,7 +192,7 @@ export const CHANNEL_OPTIONS = [
     label: 'ChatGPT Subscription (Codex)',
   },
   {
-    value: 59,
+    value: CHANNEL_TYPE_OPENCODE_GO,
     color: 'green',
     label: 'OpenCodeGo',
   },
@@ -198,7 +200,24 @@ export const CHANNEL_OPTIONS = [
 
 // Channel types that support upstream model list fetching in UI.
 export const MODEL_FETCHABLE_CHANNEL_TYPES = new Set([
-  1, 4, 14, 34, 17, 26, 27, 24, 47, 25, 20, 23, 31, 40, 42, 48, 43, 59,
+  1,
+  4,
+  14,
+  34,
+  17,
+  26,
+  27,
+  24,
+  47,
+  25,
+  20,
+  23,
+  31,
+  40,
+  42,
+  48,
+  43,
+  CHANNEL_TYPE_OPENCODE_GO,
 ]);
 
 export const MODEL_TABLE_PAGE_SIZE = 10;

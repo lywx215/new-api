@@ -21,6 +21,7 @@ import { formatTimestampToDate } from '@/lib/format'
 
 import {
   CHANNEL_STATUS_CONFIG,
+  CHANNEL_TYPE_OPENCODE_GO,
   CHANNEL_TYPES,
   MULTI_KEY_STATUS_CONFIG,
   RESPONSE_TIME_CONFIG,
@@ -52,7 +53,7 @@ export function getChannelTypeIcon(type: number): string {
     7: 'OpenAI', // OhMyGPT
     8: 'OpenAI', // Custom
     58: 'NewAPI', // Advanced Custom
-    59: 'OpenAI', // OpenCodeGo
+    [CHANNEL_TYPE_OPENCODE_GO]: 'OpenAI', // OpenCodeGo
     3: 'Azure', // Azure
 
     // Anthropic

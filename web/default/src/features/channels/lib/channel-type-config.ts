@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { CHANNEL_TYPES } from '../constants'
+import { CHANNEL_TYPE_OPENCODE_GO, CHANNEL_TYPES } from '../constants'
 
 // ============================================================================
 // Channel Type Configuration
@@ -144,9 +144,9 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: 'Models exposed by this channel',
     },
   },
-  59: {
-    id: 59,
-    name: CHANNEL_TYPES[59],
+  [CHANNEL_TYPE_OPENCODE_GO]: {
+    id: CHANNEL_TYPE_OPENCODE_GO,
+    name: CHANNEL_TYPES[CHANNEL_TYPE_OPENCODE_GO],
     icon: 'openai',
     defaultBaseUrl: 'https://opencode.ai/zen/go',
     hints: {

@@ -20,6 +20,7 @@ import { z } from 'zod'
 
 import {
   CHANNEL_STATUS,
+  CHANNEL_TYPE_OPENCODE_GO,
   ERROR_MESSAGES,
   MODEL_FETCHABLE_TYPES,
 } from '../constants'
@@ -632,7 +633,10 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     delete settingsObj.advanced_custom
   }
 
-  if (formData.type === 59 && formData.model_protocols?.trim()) {
+  if (
+    formData.type === CHANNEL_TYPE_OPENCODE_GO &&
+    formData.model_protocols?.trim()
+  ) {
     settingsObj.model_protocols = JSON.parse(formData.model_protocols)
   } else if ('model_protocols' in settingsObj) {
     delete settingsObj.model_protocols

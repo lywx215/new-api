@@ -33,8 +33,6 @@ func normalizeUsage(usage *dto.Usage, protocol Protocol) OpenCodeGoUsage {
 
 	if usage.PromptTokensDetails.CachedTokens == 0 {
 		switch {
-		case usage.CachedTokens > 0:
-			usage.PromptTokensDetails.CachedTokens = usage.CachedTokens
 		case usage.InputTokensDetails != nil && usage.InputTokensDetails.CachedTokens > 0:
 			usage.PromptTokensDetails.CachedTokens = usage.InputTokensDetails.CachedTokens
 		case usage.PromptCacheHitTokens > 0:
@@ -44,7 +42,6 @@ func normalizeUsage(usage *dto.Usage, protocol Protocol) OpenCodeGoUsage {
 	if usage.PromptCacheHitTokens == 0 {
 		usage.PromptCacheHitTokens = usage.PromptTokensDetails.CachedTokens
 	}
-	usage.CachedTokens = 0
 
 	source := UsageSourceStandard
 	switch usage.UsageSource {
@@ -81,14 +78,20 @@ func normalizeUsage(usage *dto.Usage, protocol Protocol) OpenCodeGoUsage {
 		normalized.UncachedInput = int64(uncached)
 		usage.UsageSemantic = "openai"
 	}
-	usage.InputTokens = int(normalized.UncachedInput + normalized.CacheRead +
-		normalized.CacheWrite5m + normalized.CacheWrite1h)
-	usage.OutputTokens = usage.CompletionTokens
-	usage.UsageSource = "opencodego:" + string(source)
 	if usage.Cost != nil {
 		if cost, err := decimal.NewFromString(fmt.Sprint(usage.Cost)); err == nil {
 			normalized.Cost = cost
 		}
 	}
 	return normalized
+}
+
+func applyNormalizedUsage(usage *dto.Usage, normalized OpenCodeGoUsage) {
+	if usage == nil {
+		return
+	}
+	usage.InputTokens = int(normalized.UncachedInput + normalized.CacheRead +
+		normalized.CacheWrite5m + normalized.CacheWrite1h)
+	usage.OutputTokens = int(normalized.Output)
+	usage.UsageSource = "opencodego:" + string(normalized.Source)
 }

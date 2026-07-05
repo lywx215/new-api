@@ -132,6 +132,7 @@ import {
 import {
   ADD_MODE_OPTIONS,
   CHANNEL_STATUS_LABELS,
+  CHANNEL_TYPE_OPENCODE_GO,
   CHANNEL_TYPE_OPTIONS,
   CHANNEL_TYPE_WARNINGS,
   ERROR_MESSAGES,
@@ -2642,7 +2643,7 @@ export function ChannelMutateDrawer({
                               />
                             )}
 
-                            {currentType === 59 && (
+                            {currentType === CHANNEL_TYPE_OPENCODE_GO && (
                               <FormField
                                 control={form.control}
                                 name='model_protocols'

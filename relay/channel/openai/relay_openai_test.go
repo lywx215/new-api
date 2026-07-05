@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -148,6 +149,25 @@ func TestCaptureStreamUsageNormalizesCompatibilityCacheFields(t *testing.T) {
 	require.NotNil(t, captured)
 	assert.Equal(t, 70, captured.PromptTokensDetails.CachedTokens)
 	assert.Equal(t, 70, captured.PromptCacheHitTokens)
+}
+
+func TestOpenCodeGoPostProcessingReadsRootCachedTokensWithoutExposingIt(t *testing.T) {
+	usage := &dto.Usage{PromptTokens: 100, CompletionTokens: 10, TotalTokens: 110}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenCodeGo},
+	}
+
+	applyUsagePostProcessing(info, usage, []byte(
+		`{"usage":{"prompt_tokens":100,"completion_tokens":10,"total_tokens":110,"cached_tokens":70}}`,
+	))
+
+	assert.Equal(t, 70, usage.PromptTokensDetails.CachedTokens)
+	assert.Equal(t, 70, usage.PromptCacheHitTokens)
+	encoded, err := common.Marshal(usage)
+	require.NoError(t, err)
+	var encodedUsage map[string]any
+	require.NoError(t, common.Unmarshal(encoded, &encodedUsage))
+	assert.NotContains(t, encodedUsage, "cached_tokens")
 }
 
 func TestOaiStreamHandlerHidesUsageButKeepsItForBilling(t *testing.T) {

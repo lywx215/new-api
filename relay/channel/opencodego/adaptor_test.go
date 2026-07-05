@@ -134,6 +134,7 @@ func TestNormalizeUsagePreservesProtocolSemantics(t *testing.T) {
 		PromptTokensDetails:   dto.InputTokenDetails{CachedTokens: 70},
 	}
 	normalizedOpenAI := normalizeUsage(openAIUsage, ProtocolOpenAI)
+	applyNormalizedUsage(openAIUsage, normalizedOpenAI)
 	assert.EqualValues(t, 30, normalizedOpenAI.UncachedInput)
 	assert.EqualValues(t, 70, normalizedOpenAI.CacheRead)
 	assert.Equal(t, 100, openAIUsage.InputTokens)
@@ -146,6 +147,7 @@ func TestNormalizeUsagePreservesProtocolSemantics(t *testing.T) {
 		ClaudeCacheCreation5mTokens: 20,
 	}
 	normalizedAnthropic := normalizeUsage(anthropicUsage, ProtocolAnthropic)
+	applyNormalizedUsage(anthropicUsage, normalizedAnthropic)
 	assert.EqualValues(t, 16, normalizedAnthropic.UncachedInput)
 	assert.EqualValues(t, 6304, normalizedAnthropic.CacheRead)
 	assert.EqualValues(t, 20, normalizedAnthropic.CacheWrite5m)

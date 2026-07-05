@@ -21,6 +21,8 @@ For commercial licensing, please contact support@quantumnous.com
 // All label/name values are i18n keys; use t(value) when displaying.
 // ============================================================================
 
+export const CHANNEL_TYPE_OPENCODE_GO = 59
+
 export const CHANNEL_TYPES = {
   0: 'Unknown',
   1: 'OpenAI',
@@ -77,13 +79,58 @@ export const CHANNEL_TYPES = {
   56: 'Replicate',
   57: 'ChatGPT Subscription (Codex)',
   58: 'Advanced Custom',
-  59: 'OpenCodeGo',
+  [CHANNEL_TYPE_OPENCODE_GO]: 'OpenCodeGo',
 } as const
 
 const CHANNEL_TYPE_DISPLAY_ORDER: number[] = [
-  1, 14, 59, 33, 24, 43, 3, 41, 48, 58, 42, 34, 20, 4, 40, 27, 25, 17, 26, 15,
-  46, 23, 18, 45, 31, 35, 49, 19, 47, 37, 38, 39, 11, 8, 57, 22, 21, 44, 2, 5,
-  36, 50, 51, 52, 53, 54, 55, 56,
+  1,
+  14,
+  CHANNEL_TYPE_OPENCODE_GO,
+  33,
+  24,
+  43,
+  3,
+  41,
+  48,
+  58,
+  42,
+  34,
+  20,
+  4,
+  40,
+  27,
+  25,
+  17,
+  26,
+  15,
+  46,
+  23,
+  18,
+  45,
+  31,
+  35,
+  49,
+  19,
+  47,
+  37,
+  38,
+  39,
+  11,
+  8,
+  57,
+  22,
+  21,
+  44,
+  2,
+  5,
+  36,
+  50,
+  51,
+  52,
+  53,
+  54,
+  55,
+  56,
 ]
 
 export const CHANNEL_TYPE_OPTIONS: { value: number; label: string }[] = (() => {
@@ -378,7 +425,25 @@ export const FIELD_DESCRIPTIONS = {
 // ============================================================================
 
 export const MODEL_FETCHABLE_TYPES = new Set([
-  1, 4, 14, 17, 20, 23, 24, 25, 26, 27, 31, 34, 35, 40, 42, 43, 47, 48, 59,
+  1,
+  4,
+  14,
+  17,
+  20,
+  23,
+  24,
+  25,
+  26,
+  27,
+  31,
+  34,
+  35,
+  40,
+  42,
+  43,
+  47,
+  48,
+  CHANNEL_TYPE_OPENCODE_GO,
 ])
 
 export const TYPE_TO_KEY_PROMPT: Record<number, string> = {

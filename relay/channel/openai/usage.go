@@ -274,8 +274,6 @@ func applyUsagePostProcessing(info *relaycommon.RelayInfo, usage *dto.Usage, res
 	case constant.ChannelTypeOpenCodeGo:
 		if usage.PromptTokensDetails.CachedTokens == 0 {
 			switch {
-			case usage.CachedTokens > 0:
-				usage.PromptTokensDetails.CachedTokens = usage.CachedTokens
 			case usage.InputTokensDetails != nil && usage.InputTokensDetails.CachedTokens > 0:
 				usage.PromptTokensDetails.CachedTokens = usage.InputTokensDetails.CachedTokens
 			case usage.PromptCacheHitTokens > 0:
@@ -291,7 +289,6 @@ func applyUsagePostProcessing(info *relaycommon.RelayInfo, usage *dto.Usage, res
 		if usage.PromptCacheHitTokens == 0 {
 			usage.PromptCacheHitTokens = usage.PromptTokensDetails.CachedTokens
 		}
-		usage.CachedTokens = 0
 	}
 }
 

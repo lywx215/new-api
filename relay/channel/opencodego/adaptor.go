@@ -151,7 +151,8 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	}
 	if err == nil {
 		if typed, ok := usage.(*dto.Usage); ok {
-			normalizeUsage(typed, protocol)
+			normalized := normalizeUsage(typed, protocol)
+			applyNormalizedUsage(typed, normalized)
 		}
 	}
 	return usage, err
