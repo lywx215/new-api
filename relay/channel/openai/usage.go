@@ -1,6 +1,8 @@
 package openai
 
 import (
+	"strings"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
@@ -27,6 +29,9 @@ type streamUsagePayload struct {
 
 func captureStreamUsage(data string, captured *dto.Usage) (*dto.Usage, *inferenceCostEvent) {
 	if data == "" {
+		return captured, nil
+	}
+	if !strings.Contains(data, `"usage"`) && !strings.Contains(data, `"x-opencode-type"`) {
 		return captured, nil
 	}
 
@@ -74,6 +79,9 @@ func streamDataForClient(data string, includeUsage bool) string {
 	if data == "" || includeUsage {
 		return data
 	}
+	if !strings.Contains(data, `"usage"`) {
+		return data
+	}
 
 	var payload map[string]any
 	if err := common.UnmarshalJsonStr(data, &payload); err != nil {
@@ -115,23 +123,31 @@ func normalizeUsageCacheFields(usage *dto.Usage) {
 }
 
 func mergeUsageSnapshot(current, next *dto.Usage) *dto.Usage {
-	if next == nil {
+	if !validUsageSnapshot(next) {
 		return current
 	}
 	normalizeUsageCacheFields(next)
 	if current == nil {
 		copy := *next
+		if copy.TotalTokens == 0 {
+			copy.TotalTokens = copy.PromptTokens + copy.CompletionTokens
+		}
 		return &copy
 	}
 
+	tokenCountsChanged := false
 	if next.PromptTokens > 0 {
 		current.PromptTokens = next.PromptTokens
+		tokenCountsChanged = true
 	}
 	if next.CompletionTokens > 0 {
 		current.CompletionTokens = next.CompletionTokens
+		tokenCountsChanged = true
 	}
 	if next.TotalTokens > 0 {
 		current.TotalTokens = next.TotalTokens
+	} else if tokenCountsChanged {
+		current.TotalTokens = current.PromptTokens + current.CompletionTokens
 	}
 	if next.InputTokens > 0 {
 		current.InputTokens = next.InputTokens
@@ -163,10 +179,28 @@ func mergeUsageSnapshot(current, next *dto.Usage) *dto.Usage {
 	if next.Cost != nil {
 		current.Cost = next.Cost
 	}
-	if current.TotalTokens == 0 && (current.PromptTokens > 0 || current.CompletionTokens > 0) {
+	if current.TotalTokens == 0 {
 		current.TotalTokens = current.PromptTokens + current.CompletionTokens
 	}
 	return current
+}
+
+func validUsageSnapshot(usage *dto.Usage) bool {
+	if usage == nil {
+		return false
+	}
+	return usage.PromptTokens > 0 ||
+		usage.CompletionTokens > 0 ||
+		usage.TotalTokens > 0 ||
+		usage.InputTokens > 0 ||
+		usage.OutputTokens > 0 ||
+		usage.PromptCacheHitTokens > 0 ||
+		usage.PromptCacheMissTokens > 0 ||
+		usage.PromptTokensDetails.CachedTokens > 0 ||
+		usage.PromptTokensDetails.CachedCreationTokens > 0 ||
+		usage.CompletionTokenDetails.ReasoningTokens > 0 ||
+		usage.ClaudeCacheCreation5mTokens > 0 ||
+		usage.ClaudeCacheCreation1hTokens > 0
 }
 
 func usageFromInferenceCost(event *inferenceCostEvent) *dto.Usage {

@@ -1,9 +1,18 @@
 package openai
 
 import (
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/types"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -53,6 +62,57 @@ func TestCaptureStreamUsageMergesSnapshotsWithoutAdding(t *testing.T) {
 	assert.Equal(t, 4700, captured.PromptTokensDetails.CachedTokens)
 }
 
+func TestCaptureStreamUsageIgnoresZeroOnlySnapshot(t *testing.T) {
+	captured, _ := captureStreamUsage(
+		`{"choices":[],"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}`,
+		nil,
+	)
+
+	assert.Nil(t, captured)
+}
+
+func TestMergeUsageSnapshotRecalculatesMissingTotal(t *testing.T) {
+	current := &dto.Usage{PromptTokens: 100, CompletionTokens: 10, TotalTokens: 110}
+	next := &dto.Usage{PromptTokens: 120, CompletionTokens: 20}
+
+	merged := mergeUsageSnapshot(current, next)
+
+	require.NotNil(t, merged)
+	assert.Equal(t, 120, merged.PromptTokens)
+	assert.Equal(t, 20, merged.CompletionTokens)
+	assert.Equal(t, 140, merged.TotalTokens)
+}
+
+func TestHandleLastResponseDoesNotOverwriteCapturedCache(t *testing.T) {
+	usage := &dto.Usage{
+		PromptTokens:     100,
+		CompletionTokens: 10,
+		TotalTokens:      110,
+		PromptTokensDetails: dto.InputTokenDetails{
+			CachedTokens: 70,
+		},
+	}
+	containUsage := true
+	shouldSend := true
+	var responseID, fingerprint, model string
+	var created int64
+
+	err := handleLastResponse(
+		`{"id":"chunk","model":"test","choices":[],"usage":{"prompt_tokens":100,"completion_tokens":10,"total_tokens":110,"prompt_tokens_details":{"cached_tokens":0}}}`,
+		&responseID,
+		&created,
+		&fingerprint,
+		&model,
+		&usage,
+		&containUsage,
+		&relaycommon.RelayInfo{},
+		&shouldSend,
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, 70, usage.PromptTokensDetails.CachedTokens)
+}
+
 func TestInferenceCostIsFallbackUsage(t *testing.T) {
 	_, cost := captureStreamUsage(
 		`{"x-opencode-type":"inference-cost","cost":"0.25","normalizedUsage":{"inputTokens":114,"outputTokens":56,"reasoningTokens":51,"cacheReadTokens":5376,"cacheWrite5mTokens":10,"cacheWrite1hTokens":20}}`,
@@ -75,6 +135,8 @@ func TestStreamDataForClientRemovesUnrequestedUsage(t *testing.T) {
 	filtered := streamDataForClient(data, false)
 	assert.JSONEq(t, `{"id":"chunk-1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`, filtered)
 	assert.Equal(t, data, streamDataForClient(data, true))
+	content := `{"choices":[{"delta":{"content":"hello"}}]}`
+	assert.Equal(t, content, streamDataForClient(content, false))
 }
 
 func TestCaptureStreamUsageNormalizesCompatibilityCacheFields(t *testing.T) {
@@ -86,6 +148,43 @@ func TestCaptureStreamUsageNormalizesCompatibilityCacheFields(t *testing.T) {
 	require.NotNil(t, captured)
 	assert.Equal(t, 70, captured.PromptTokensDetails.CachedTokens)
 	assert.Equal(t, 70, captured.PromptCacheHitTokens)
+}
+
+func TestOaiStreamHandlerHidesUsageButKeepsItForBilling(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+
+	body := strings.Join([]string{
+		`data: {"id":"chunk","model":"test","choices":[{"index":0,"delta":{"content":"ok"}}]}`,
+		`data: {"id":"chunk","model":"test","choices":[],"usage":{"prompt_tokens":100,"completion_tokens":10,"total_tokens":110,"prompt_tokens_details":{"cached_tokens":70}}}`,
+		`data: {"x-opencode-type":"inference-cost","normalizedUsage":{"inputTokens":30,"outputTokens":10,"cacheReadTokens":70}}`,
+		`data: {}`,
+		`data: [DONE]`,
+		"",
+	}, "\n")
+	resp := &http.Response{Body: io.NopCloser(strings.NewReader(body))}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	info := &relaycommon.RelayInfo{
+		IsStream:           true,
+		RelayMode:          relayconstant.RelayModeChatCompletions,
+		RelayFormat:        types.RelayFormatOpenAI,
+		ShouldIncludeUsage: false,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName: "test",
+		},
+	}
+
+	usage, apiErr := OaiStreamHandler(c, info, resp)
+
+	require.Nil(t, apiErr)
+	require.NotNil(t, usage)
+	assert.Equal(t, 100, usage.PromptTokens)
+	assert.Equal(t, 70, usage.PromptTokensDetails.CachedTokens)
+	assert.NotContains(t, strings.ToLower(recorder.Body.String()), `"usage":`)
 }
 
 func TestCaptureStreamUsageEventOrder(t *testing.T) {
