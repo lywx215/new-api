@@ -207,6 +207,118 @@ func TestOaiStreamHandlerHidesUsageButKeepsItForBilling(t *testing.T) {
 	assert.NotContains(t, strings.ToLower(recorder.Body.String()), `"usage":`)
 }
 
+func TestNativeOpenAIStreamOutputRemainsByteForByteUnchanged(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+
+	contentChunk := `{"id":"chunk","model":"test","choices":[{"index":0,"delta":{"content":"ok"}}]}`
+	usageChunk := `{"id":"chunk","model":"test","choices":[],"usage":{"prompt_tokens":100,"completion_tokens":10,"total_tokens":110,"prompt_tokens_details":{"cached_tokens":70}}}`
+	body := "data: " + contentChunk + "\n\ndata: " + usageChunk + "\n\ndata: [DONE]\n\n"
+	resp := &http.Response{Body: io.NopCloser(strings.NewReader(body))}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	info := &relaycommon.RelayInfo{
+		IsStream:           true,
+		RelayMode:          relayconstant.RelayModeChatCompletions,
+		RelayFormat:        types.RelayFormatOpenAI,
+		ShouldIncludeUsage: true,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelType:       constant.ChannelTypeOpenAI,
+			UpstreamModelName: "test",
+		},
+	}
+
+	usage, apiErr := OaiStreamHandler(c, info, resp)
+
+	require.Nil(t, apiErr)
+	require.NotNil(t, usage)
+	assert.Equal(t, body, recorder.Body.String())
+}
+
+func TestNativeOpenAINonStreamOutputRemainsByteForByteUnchanged(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := `{"id":"response","object":"chat.completion","vendor_extension":"keep","choices":[],"usage":{"prompt_tokens":100,"completion_tokens":10,"total_tokens":110,"prompt_tokens_details":{"cached_tokens":70},"provider_cache":"keep"}}`
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	info := &relaycommon.RelayInfo{
+		RelayFormat: types.RelayFormatOpenAI,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelType:       constant.ChannelTypeOpenAI,
+			UpstreamModelName: "test",
+		},
+	}
+
+	usage, apiErr := OpenaiHandler(c, info, resp)
+
+	require.Nil(t, apiErr)
+	require.NotNil(t, usage)
+	assert.Equal(t, body, recorder.Body.String())
+}
+
+func TestOpenCodeGoNonStreamCanonicalizesProviderCacheFields(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "deepseek prompt cache hit",
+			body: `{"id":"response","vendor_extension":"keep","choices":[],"usage":{"prompt_tokens":100,"completion_tokens":10,"total_tokens":110,"prompt_cache_hit_tokens":70,"provider_cache":"keep"}}`,
+		},
+		{
+			name: "glm root cached tokens",
+			body: `{"id":"response","vendor_extension":"keep","choices":[],"usage":{"prompt_tokens":100,"completion_tokens":10,"total_tokens":110,"cached_tokens":70,"provider_cache":"keep"}}`,
+		},
+		{
+			name: "kimi choice cached tokens",
+			body: `{"id":"response","vendor_extension":"keep","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop","usage":{"cached_tokens":70}}],"usage":{"prompt_tokens":100,"completion_tokens":10,"total_tokens":110,"provider_cache":"keep"}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(tt.body)),
+			}
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			info := &relaycommon.RelayInfo{
+				RelayFormat: types.RelayFormatOpenAI,
+				ChannelMeta: &relaycommon.ChannelMeta{
+					ChannelType:       constant.ChannelTypeOpenCodeGo,
+					UpstreamModelName: "test",
+				},
+			}
+
+			usage, apiErr := OpenaiHandler(c, info, resp)
+
+			require.Nil(t, apiErr)
+			require.NotNil(t, usage)
+			assert.Equal(t, 70, usage.PromptTokensDetails.CachedTokens)
+
+			var output map[string]any
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &output))
+			assert.Equal(t, "keep", output["vendor_extension"])
+			outputUsage, ok := output["usage"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, "keep", outputUsage["provider_cache"])
+			details, ok := outputUsage["prompt_tokens_details"].(map[string]any)
+			require.True(t, ok)
+			assert.EqualValues(t, 70, details["cached_tokens"])
+		})
+	}
+}
+
 func TestCaptureStreamUsageEventOrder(t *testing.T) {
 	standard := `{"usage":{"prompt_tokens":100,"completion_tokens":10,"total_tokens":110,"prompt_tokens_details":{"cached_tokens":70}}}`
 	cost := `{"x-opencode-type":"inference-cost","normalizedUsage":{"inputTokens":30,"outputTokens":10,"cacheReadTokens":70}}`

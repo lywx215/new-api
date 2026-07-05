@@ -54,7 +54,11 @@ func TestOpenAIStreamKeepsUsageBeforeInferenceCost(t *testing.T) {
 	assert.Equal(t, 5376, usage.PromptTokensDetails.CachedTokens)
 	assert.Equal(t, 114, usage.PromptCacheMissTokens)
 	assert.Equal(t, "opencodego:standard", usage.UsageSource)
-	assert.Equal(t, 1, strings.Count(recorder.Body.String(), `"usage"`))
+	output := recorder.Body.String()
+	assert.Equal(t, 1, strings.Count(output, `"usage"`))
+	usageIndex := strings.Index(output, `"usage"`)
+	assert.Greater(t, usageIndex, strings.Index(output, `"x-opencode-type":"inference-cost"`))
+	assert.Greater(t, strings.Index(output, `data: [DONE]`), usageIndex)
 }
 
 func TestOpenAIStreamUsesInferenceCostOnlyAsFallback(t *testing.T) {

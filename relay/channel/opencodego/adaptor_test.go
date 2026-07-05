@@ -95,6 +95,56 @@ func TestOpenAIStreamingRequestAlwaysIncludesUsage(t *testing.T) {
 	assert.True(t, actual.StreamOptions.IncludeUsage)
 }
 
+func TestKimiRequestDropsUnsupportedTemperatureOnly(t *testing.T) {
+	tests := []struct {
+		name            string
+		model           string
+		temperature     float64
+		wantTemperature *float64
+	}{
+		{
+			name:        "unsupported Kimi temperature is omitted",
+			model:       "kimi-k2.7-code",
+			temperature: 0.7,
+		},
+		{
+			name:            "supported Kimi temperature is preserved",
+			model:           "kimi-k2.7-code",
+			temperature:     1,
+			wantTemperature: common.GetPointer(1.0),
+		},
+		{
+			name:            "other model temperature is preserved",
+			model:           "glm-5.2",
+			temperature:     0.7,
+			wantTemperature: common.GetPointer(0.7),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info := &relaycommon.RelayInfo{
+				ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: tt.model},
+			}
+			request := &dto.GeneralOpenAIRequest{
+				Model:       tt.model,
+				Temperature: common.GetPointer(tt.temperature),
+			}
+
+			converted, err := (&Adaptor{}).ConvertOpenAIRequest(nil, info, request)
+
+			require.NoError(t, err)
+			actual := converted.(*dto.GeneralOpenAIRequest)
+			if tt.wantTemperature == nil {
+				assert.Nil(t, actual.Temperature)
+			} else {
+				require.NotNil(t, actual.Temperature)
+				assert.Equal(t, *tt.wantTemperature, *actual.Temperature)
+			}
+		})
+	}
+}
+
 func TestAdaptorConvertsAcrossClientAndModelProtocols(t *testing.T) {
 	t.Run("OpenAI client to Anthropic model", func(t *testing.T) {
 		info := &relaycommon.RelayInfo{

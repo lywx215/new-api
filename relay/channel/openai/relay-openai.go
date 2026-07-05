@@ -128,7 +128,8 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		if lastStreamData != "" {
 			clientData := lastStreamData
 			if info.RelayFormat == types.RelayFormatOpenAI {
-				clientData = streamDataForClient(lastStreamData, info.ShouldIncludeUsage)
+				includeUsage := info.ShouldIncludeUsage && info.ChannelType != constant.ChannelTypeOpenCodeGo
+				clientData = streamDataForClient(lastStreamData, includeUsage)
 			}
 			if err := HandleStreamFormat(c, info, clientData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
 				common.SysLog("error handling stream format: " + err.Error())
@@ -188,7 +189,8 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 
 	if info.RelayFormat == types.RelayFormatOpenAI {
 		if shouldSendLastResp {
-			clientData := streamDataForClient(lastStreamData, info.ShouldIncludeUsage)
+			includeUsage := info.ShouldIncludeUsage && info.ChannelType != constant.ChannelTypeOpenCodeGo
+			clientData := streamDataForClient(lastStreamData, includeUsage)
 			_ = sendStreamData(c, info, clientData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
 		}
 	}
@@ -274,13 +276,17 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
-		if usageModified {
+		if usageModified || (info.ChannelType == constant.ChannelTypeOpenCodeGo && hasCanonicalCacheUsage(&simpleResponse.Usage)) {
 			var bodyMap map[string]interface{}
 			err = common.Unmarshal(responseBody, &bodyMap)
 			if err != nil {
 				return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 			}
-			bodyMap["usage"] = simpleResponse.Usage
+			if info.ChannelType == constant.ChannelTypeOpenCodeGo {
+				mergeCanonicalCacheUsage(bodyMap, &simpleResponse.Usage)
+			} else {
+				bodyMap["usage"] = simpleResponse.Usage
+			}
 			responseBody, _ = common.Marshal(bodyMap)
 		}
 		if forceFormat {

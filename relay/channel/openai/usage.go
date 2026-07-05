@@ -292,6 +292,51 @@ func applyUsagePostProcessing(info *relaycommon.RelayInfo, usage *dto.Usage, res
 	}
 }
 
+func hasCanonicalCacheUsage(usage *dto.Usage) bool {
+	if usage == nil {
+		return false
+	}
+	return usage.PromptCacheHitTokens > 0 ||
+		usage.PromptCacheMissTokens > 0 ||
+		usage.PromptTokensDetails.CachedTokens > 0 ||
+		usage.PromptTokensDetails.CachedCreationTokens > 0
+}
+
+func mergeCanonicalCacheUsage(responseBody map[string]any, usage *dto.Usage) {
+	if responseBody == nil || usage == nil {
+		return
+	}
+
+	usageBody, ok := responseBody["usage"].(map[string]any)
+	if !ok {
+		usageBody = map[string]any{}
+	}
+	usageBody["prompt_tokens"] = usage.PromptTokens
+	usageBody["completion_tokens"] = usage.CompletionTokens
+	usageBody["total_tokens"] = usage.TotalTokens
+	if usage.PromptCacheHitTokens > 0 {
+		usageBody["prompt_cache_hit_tokens"] = usage.PromptCacheHitTokens
+	}
+	if usage.PromptCacheMissTokens > 0 {
+		usageBody["prompt_cache_miss_tokens"] = usage.PromptCacheMissTokens
+	}
+
+	details, ok := usageBody["prompt_tokens_details"].(map[string]any)
+	if !ok {
+		details = map[string]any{}
+	}
+	if usage.PromptTokensDetails.CachedTokens > 0 {
+		details["cached_tokens"] = usage.PromptTokensDetails.CachedTokens
+	}
+	if usage.PromptTokensDetails.CachedCreationTokens > 0 {
+		details["cached_creation_tokens"] = usage.PromptTokensDetails.CachedCreationTokens
+	}
+	if len(details) > 0 {
+		usageBody["prompt_tokens_details"] = details
+	}
+	responseBody["usage"] = usageBody
+}
+
 func extractCachedTokensFromBody(body []byte) (int, bool) {
 	if len(body) == 0 {
 		return 0, false

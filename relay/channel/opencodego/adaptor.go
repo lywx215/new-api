@@ -83,6 +83,7 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	if a.activeProtocol(info) == ProtocolAnthropic {
 		return a.claude.ConvertOpenAIRequest(c, info, request)
 	}
+	normalizeOpenAIRequest(info, request)
 	if info.IsStream {
 		request.StreamOptions = &dto.StreamOptions{IncludeUsage: true}
 	}
@@ -100,10 +101,24 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 	if err != nil {
 		return nil, err
 	}
+	normalizeOpenAIRequest(info, converted)
 	if info.IsStream {
 		converted.StreamOptions = &dto.StreamOptions{IncludeUsage: true}
 	}
 	return converted, nil
+}
+
+func normalizeOpenAIRequest(info *relaycommon.RelayInfo, request *dto.GeneralOpenAIRequest) {
+	if request == nil || request.Temperature == nil {
+		return
+	}
+	model := request.Model
+	if info != nil && info.UpstreamModelName != "" {
+		model = info.UpstreamModelName
+	}
+	if strings.EqualFold(strings.TrimSpace(model), "kimi-k2.7-code") && *request.Temperature != 1 {
+		request.Temperature = nil
+	}
 }
 
 func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeminiChatRequest) (any, error) {
