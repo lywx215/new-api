@@ -125,10 +125,18 @@ func handleLastResponse(lastStreamData string, responseId *string, createAt *int
 		return err
 	}
 
-	*responseId = lastStreamResponse.Id
-	*createAt = lastStreamResponse.Created
-	*systemFingerprint = lastStreamResponse.GetSystemFingerprint()
-	*model = lastStreamResponse.Model
+	if lastStreamResponse.Id != "" {
+		*responseId = lastStreamResponse.Id
+	}
+	if lastStreamResponse.Created != 0 {
+		*createAt = lastStreamResponse.Created
+	}
+	if fingerprint := lastStreamResponse.GetSystemFingerprint(); fingerprint != "" {
+		*systemFingerprint = fingerprint
+	}
+	if lastStreamResponse.Model != "" {
+		*model = lastStreamResponse.Model
+	}
 
 	if service.ValidUsage(lastStreamResponse.Usage) {
 		*containStreamUsage = true

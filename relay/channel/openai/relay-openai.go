@@ -116,6 +116,8 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	var responseTextBuilder strings.Builder
 	var toolCount int
 	var usage = &dto.Usage{}
+	var capturedUsage *dto.Usage
+	var capturedInferenceCost *inferenceCostEvent
 	var lastStreamData string
 	var secondLastStreamData string // 存储倒数第二个stream data，用于音频模型
 
@@ -124,12 +126,21 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		if lastStreamData != "" {
-			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+			clientData := lastStreamData
+			if info.RelayFormat == types.RelayFormatOpenAI {
+				clientData = streamDataForClient(lastStreamData, info.ShouldIncludeUsage)
+			}
+			if err := HandleStreamFormat(c, info, clientData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
 				common.SysLog("error handling stream format: " + err.Error())
 				sr.Error(err)
 			}
 		}
 		if len(data) > 0 {
+			var inferenceCost *inferenceCostEvent
+			capturedUsage, inferenceCost = captureStreamUsage(data, capturedUsage)
+			if inferenceCost != nil {
+				capturedInferenceCost = inferenceCost
+			}
 			// 对音频模型，保存倒数第二个stream data
 			if isAudioModel && lastStreamData != "" {
 				secondLastStreamData = lastStreamData
@@ -143,8 +154,15 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		}
 	})
 
+	if capturedUsage != nil {
+		usage = capturedUsage
+		containStreamUsage = true
+	} else if capturedInferenceCost != nil {
+		usage = usageFromInferenceCost(capturedInferenceCost)
+	}
+
 	// 对音频模型，从倒数第二个stream data中提取usage信息
-	if isAudioModel && secondLastStreamData != "" {
+	if capturedUsage == nil && isAudioModel && secondLastStreamData != "" {
 		var streamResp struct {
 			Usage *dto.Usage `json:"usage"`
 		}
@@ -170,11 +188,12 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 
 	if info.RelayFormat == types.RelayFormatOpenAI {
 		if shouldSendLastResp {
-			_ = sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
+			clientData := streamDataForClient(lastStreamData, info.ShouldIncludeUsage)
+			_ = sendStreamData(c, info, clientData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
 		}
 	}
 
-	if !containStreamUsage {
+	if !containStreamUsage && capturedInferenceCost == nil {
 		usage = service.ResponseText2Usage(c, responseTextBuilder.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
 		usage.CompletionTokens += toolCount * 7
 	}
