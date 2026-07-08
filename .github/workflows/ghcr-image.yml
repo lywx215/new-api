@@ -48,23 +48,25 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Install frontend dependencies
-        working-directory: web
-        run: bun install --frozen-lockfile || (rm -rf node_modules && bun install --frozen-lockfile)
-
       - name: Build default frontend
-        working-directory: web/default
         env:
           CI: ''
           VITE_REACT_APP_VERSION: ${{ env.TAG }}
-        run: bun run build
+        run: |
+          cd web
+          bun install --frozen-lockfile || (rm -rf node_modules && bun install --frozen-lockfile)
+          cd default
+          DISABLE_ESLINT_PLUGIN='true' bun run build
 
       - name: Build classic frontend
-        working-directory: web/classic
         env:
           CI: ''
           VITE_REACT_APP_VERSION: ${{ env.TAG }}
-        run: bun run build
+        run: |
+          cd web
+          bun install --filter ./classic --frozen-lockfile
+          cd classic
+          bun run build
 
       - name: Upload frontend assets
         uses: actions/upload-artifact@v4
