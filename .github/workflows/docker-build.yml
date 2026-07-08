@@ -5,6 +5,7 @@ on:
     tags:
       - '*'
       - '!nightly*'
+      - '!*-ghcr*'
   workflow_dispatch:
     inputs:
       tag:
