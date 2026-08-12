@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/QuantumNous/new-api/common"
@@ -10,6 +11,7 @@ import (
 
 const openCodeGoChannelTypeMigrationKey = "Migration.OpenCodeGoChannelType99"
 const openCodeGoChannelTypeMigrationComplete = "complete"
+const legacyOpenCodeGoChannelType = 59
 
 // migrateOpenCodeGoChannelType moves the fork's persisted OpenCodeGo channel
 // type away from upstream's newly assigned Sub2API type. The marker and row
@@ -23,27 +25,27 @@ func migrateOpenCodeGoChannelType(db *gorm.DB, enabled bool, requireResolution b
 		if err == nil && marker.Value == openCodeGoChannelTypeMigrationComplete {
 			return nil
 		}
-		if err != nil && err != gorm.ErrRecordNotFound {
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
 
 		var legacyCount int64
 		if err := tx.Model(&Channel{}).
-			Where("type = ?", constant.ChannelTypeLegacyOpenCodeGo).
+			Where("type = ?", legacyOpenCodeGoChannelType).
 			Count(&legacyCount).Error; err != nil {
 			return err
 		}
 
 		if legacyCount > 0 && !enabled {
 			if requireResolution {
-				return fmt.Errorf("found %d legacy OpenCodeGo channels with type %d; set MIGRATE_OPENCODEGO_59_TO_99=true on exactly one drained instance before starting the final release", legacyCount, constant.ChannelTypeLegacyOpenCodeGo)
+				return fmt.Errorf("found %d unmarked channels with type %d; this database may contain legacy OpenCodeGo or upstream Sub2API data; set MIGRATE_OPENCODEGO_59_TO_99=true only after confirming every row is legacy OpenCodeGo", legacyCount, legacyOpenCodeGoChannelType)
 			}
 			return nil
 		}
 
 		if legacyCount > 0 {
 			result := tx.Model(&Channel{}).
-				Where("type = ?", constant.ChannelTypeLegacyOpenCodeGo).
+				Where("type = ?", legacyOpenCodeGoChannelType).
 				Update("type", constant.ChannelTypeOpenCodeGo)
 			if result.Error != nil {
 				return result.Error
@@ -60,14 +62,29 @@ func migrateOpenCodeGoChannelType(db *gorm.DB, enabled bool, requireResolution b
 	return migrated, err
 }
 
-func migrateOpenCodeGoChannelTypeBridge() error {
+func migrateOpenCodeGoChannelTypeOnStartup() error {
 	enabled := common.GetEnvOrDefaultBool("MIGRATE_OPENCODEGO_59_TO_99", false)
-	migrated, err := migrateOpenCodeGoChannelType(DB, enabled, false)
+	migrated, err := migrateOpenCodeGoChannelType(DB, enabled, true)
 	if err != nil {
 		return err
 	}
 	if migrated > 0 {
-		common.SysLog(fmt.Sprintf("migrated %d OpenCodeGo channels from type %d to %d", migrated, constant.ChannelTypeLegacyOpenCodeGo, constant.ChannelTypeOpenCodeGo))
+		common.SysLog(fmt.Sprintf("migrated %d OpenCodeGo channels from type %d to %d", migrated, legacyOpenCodeGoChannelType, constant.ChannelTypeOpenCodeGo))
+	}
+	return nil
+}
+
+func verifyOpenCodeGoChannelTypeMigration() error {
+	// Test fixtures and a not-yet-initialized replica may intentionally connect
+	// before the primary has created the schema. Once options exists, every
+	// replica must observe the completed marker before serving traffic.
+	if !DB.Migrator().HasTable(&Option{}) {
+		return nil
+	}
+	var marker Option
+	if err := DB.Where("key = ? AND value = ?", openCodeGoChannelTypeMigrationKey, openCodeGoChannelTypeMigrationComplete).
+		First(&marker).Error; err != nil {
+		return fmt.Errorf("OpenCodeGo channel type migration is not complete on this database; start the migration-enabled primary instance first: %w", err)
 	}
 	return nil
 }

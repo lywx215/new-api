@@ -48,33 +48,20 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Build default frontend
+      - name: Build frontend
         env:
           CI: ''
           VITE_REACT_APP_VERSION: ${{ env.TAG }}
         run: |
           cd web
           bun install --frozen-lockfile || (rm -rf node_modules && bun install --frozen-lockfile)
-          cd default
           DISABLE_ESLINT_PLUGIN='true' bun run build
-
-      - name: Build classic frontend
-        env:
-          CI: ''
-          VITE_REACT_APP_VERSION: ${{ env.TAG }}
-        run: |
-          cd web
-          bun install --filter ./classic --frozen-lockfile
-          cd classic
-          bun run build
 
       - name: Upload frontend assets
         uses: actions/upload-artifact@v4
         with:
           name: web-dist
-          path: |
-            web/default/dist
-            web/classic/dist
+          path: web/dist
           if-no-files-found: error
           retention-days: 1
 
@@ -118,7 +105,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: web-dist
-          path: web
+          path: web/dist
 
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5

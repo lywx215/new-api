@@ -5,8 +5,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
 type inferenceCostEvent struct {
@@ -271,7 +271,7 @@ func applyUsagePostProcessing(info *relaycommon.RelayInfo, usage *dto.Usage, res
 				usage.PromptTokensDetails.CachedTokens = cachedTokens
 			}
 		}
-	case constant.ChannelTypeLegacyOpenCodeGo, constant.ChannelTypeOpenCodeGo:
+	case constant.ChannelTypeOpenCodeGo:
 		if usage.PromptTokensDetails.CachedTokens == 0 {
 			switch {
 			case usage.InputTokensDetails != nil && usage.InputTokensDetails.CachedTokens > 0:
