@@ -149,6 +149,8 @@ type RatioSettingsCardProps = {
   modelDefaults: ModelFormValues
   groupDefaults: GroupFormValues
   toolPricesDefault: string
+  officialBillingRevision?: string
+  effectiveBillingSource?: string
   titleKey?: string
   visibleTabs?: RatioTabId[]
 }
@@ -157,6 +159,8 @@ export function RatioSettingsCard({
   modelDefaults,
   groupDefaults,
   toolPricesDefault,
+  officialBillingRevision,
+  effectiveBillingSource,
   titleKey = 'Pricing Ratios',
   visibleTabs = ['models', 'groups', 'tool-prices', 'upstream-sync'],
 }: RatioSettingsCardProps) {
@@ -164,6 +168,24 @@ export function RatioSettingsCard({
   const updateOption = useUpdateOption()
   const queryClient = useQueryClient()
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const billingSourceSummary = useMemo(() => {
+    try {
+      const sources = JSON.parse(effectiveBillingSource || '{}') as Record<
+        string,
+        string
+      >
+      return Object.values(sources).reduce(
+        (summary, source) => {
+          if (source === 'official') summary.official += 1
+          if (source === 'operator') summary.operator += 1
+          return summary
+        },
+        { official: 0, operator: 0 }
+      )
+    } catch {
+      return null
+    }
+  }, [effectiveBillingSource])
 
   const resetMutation = useMutation({
     mutationFn: resetModelRatios,
@@ -422,15 +444,32 @@ export function RatioSettingsCard({
   const renderTabContent = (tab: RatioTabId) => {
     if (tab === 'models' || tab === 'unset-models') {
       return (
-        <ModelRatioForm
-          form={modelForm}
-          savedValues={savedModelValues}
-          onSave={saveModelRatios}
-          onReset={handleResetRatios}
-          isSaving={updateOption.isPending}
-          isResetting={resetMutation.isPending}
-          variant={tab === 'unset-models' ? 'unset' : 'default'}
-        />
+        <>
+          {tab === 'models' &&
+            officialBillingRevision &&
+            billingSourceSummary && (
+              <div className='bg-muted/40 mb-4 rounded-md border px-4 py-3 text-sm'>
+                <p className='font-medium'>
+                  {t('Official billing revision')}: {officialBillingRevision}
+                </p>
+                <p className='text-muted-foreground'>
+                  {t(
+                    'Official defaults: {{official}}, operator overrides: {{operator}}.',
+                    billingSourceSummary
+                  )}
+                </p>
+              </div>
+            )}
+          <ModelRatioForm
+            form={modelForm}
+            savedValues={savedModelValues}
+            onSave={saveModelRatios}
+            onReset={handleResetRatios}
+            isSaving={updateOption.isPending}
+            isResetting={resetMutation.isPending}
+            variant={tab === 'unset-models' ? 'unset' : 'default'}
+          />
+        </>
       )
     }
     if (tab === 'groups') {

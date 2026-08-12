@@ -82,7 +82,8 @@ func ClaudeMessagesRequestToOpenAIChat(claudeRequest dto.ClaudeRequest, info con
 	openAITools := make([]dto.ToolCallRequest, 0)
 	for _, claudeTool := range tools {
 		openAITool := dto.ToolCallRequest{
-			Type: "function",
+			Type:         "function",
+			CacheControl: claudeTool.CacheControl,
 			Function: dto.FunctionRequest{
 				Name:        claudeTool.Name,
 				Description: claudeTool.Description,
@@ -92,6 +93,30 @@ func ClaudeMessagesRequestToOpenAIChat(claudeRequest dto.ClaudeRequest, info con
 		openAITools = append(openAITools, openAITool)
 	}
 	openAIRequest.Tools = openAITools
+	if claudeRequest.ToolChoice != nil {
+		choice, err := kitutil.Any2Type[dto.ClaudeToolChoice](claudeRequest.ToolChoice)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert Claude tool_choice: %w", err)
+		}
+		switch choice.Type {
+		case "auto":
+			openAIRequest.ToolChoice = "auto"
+		case "any":
+			openAIRequest.ToolChoice = "required"
+		case "tool":
+			openAIRequest.ToolChoice = map[string]any{
+				"type": "function",
+				"function": map[string]any{
+					"name": choice.Name,
+				},
+			}
+		case "none":
+			openAIRequest.ToolChoice = "none"
+		}
+		if choice.DisableParallelToolUse {
+			openAIRequest.ParallelTooCalls = kitutil.GetPointer(false)
+		}
+	}
 
 	openAIMessages := make([]dto.Message, 0)
 	if claudeRequest.System != nil {

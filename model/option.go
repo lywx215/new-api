@@ -1,12 +1,14 @@
 package model
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/performance_setting"
@@ -211,6 +213,28 @@ func validateOptionValue(key string, value string) error {
 	}
 	if key == "MaxTokenAutoGroups" {
 		return setting.ValidateMaxTokenAutoGroups(value)
+	}
+	if key == "billing_setting.billing_mode" {
+		var modes map[string]string
+		if err := common.UnmarshalJsonStr(value, &modes); err != nil {
+			return err
+		}
+		for model, mode := range modes {
+			if mode != billing_setting.BillingModeRatio && mode != billing_setting.BillingModeTieredExpr {
+				return fmt.Errorf("invalid billing mode %q for model %q", mode, model)
+			}
+		}
+	}
+	if key == "billing_setting.billing_expr" {
+		var expressions map[string]string
+		if err := common.UnmarshalJsonStr(value, &expressions); err != nil {
+			return err
+		}
+		for model, expression := range expressions {
+			if err := billing_setting.SmokeTestExpr(expression); err != nil {
+				return fmt.Errorf("invalid billing expression for model %q: %w", model, err)
+			}
+		}
 	}
 	return nil
 }

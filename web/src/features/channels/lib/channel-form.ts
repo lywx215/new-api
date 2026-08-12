@@ -1,21 +1,3 @@
-/*
-Copyright (C) 2023-2026 QuantumNous
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3 of the
-License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-For commercial licensing, please contact support@quantumnous.com
-*/
 import { z } from 'zod'
 
 import {
@@ -248,6 +230,7 @@ export const channelFormSchema = z
       .string()
       .optional()
       .refine(isOptionalJsonObject, ERROR_MESSAGES.INVALID_JSON),
+    disable_opencodego_auto_cache: z.boolean().optional(),
     other: z.string().optional(),
     // Multi-key options (not sent to backend directly)
     multi_key_mode: z.enum(['single', 'batch', 'multi_to_single']).optional(),
@@ -457,6 +440,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   upstream_model_update_ignored_models: '',
   advanced_custom: '',
   model_protocols: '',
+  disable_opencodego_auto_cache: false,
 }
 
 // ============================================================================
@@ -522,6 +506,7 @@ export function transformChannelToFormDefaults(
   let upstreamModelUpdateIgnoredModels = ''
   let advancedCustom = ''
   let modelProtocols = ''
+  let disableOpenCodeGoAutoCache = false
 
   if (channel.settings) {
     try {
@@ -553,6 +538,7 @@ export function transformChannelToFormDefaults(
       if (parsed.model_protocols) {
         modelProtocols = JSON.stringify(parsed.model_protocols, null, 2)
       }
+      disableOpenCodeGoAutoCache = parsed.disable_opencodego_auto_cache === true
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('Failed to parse channel settings:', error)
@@ -605,6 +591,7 @@ export function transformChannelToFormDefaults(
     upstream_model_update_ignored_models: upstreamModelUpdateIgnoredModels,
     advanced_custom: advancedCustom,
     model_protocols: modelProtocols,
+    disable_opencodego_auto_cache: disableOpenCodeGoAutoCache,
   }
 }
 
@@ -773,6 +760,13 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     settingsObj.model_protocols = JSON.parse(formData.model_protocols)
   } else if ('model_protocols' in settingsObj) {
     delete settingsObj.model_protocols
+  }
+
+  if (formData.type === CHANNEL_TYPE_OPENCODE_GO) {
+    settingsObj.disable_opencodego_auto_cache =
+      formData.disable_opencodego_auto_cache === true
+  } else if ('disable_opencodego_auto_cache' in settingsObj) {
+    delete settingsObj.disable_opencodego_auto_cache
   }
 
   return JSON.stringify(settingsObj)

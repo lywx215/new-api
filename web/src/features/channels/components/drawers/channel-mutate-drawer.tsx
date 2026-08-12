@@ -1,21 +1,3 @@
-/*
-Copyright (C) 2023-2026 QuantumNous
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3 of the
-License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-For commercial licensing, please contact support@quantumnous.com
-*/
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -2809,6 +2791,7 @@ export function ChannelMutateDrawer({
                                         placeholder={`{
   "minimax-*": "anthropic",
   "qwen3.*": "anthropic",
+  "gpt-5.6-luna": "responses",
   "glm-*": "openai"
 }`}
                                         {...field}
@@ -2816,10 +2799,41 @@ export function ChannelMutateDrawer({
                                     </FormControl>
                                     <FormDescription>
                                       {t(
-                                        'Optional JSON map of exact model IDs or wildcard patterns to openai/anthropic. Exact matches take priority.'
+                                        'Optional JSON map of exact model IDs or wildcard patterns to openai, anthropic, or responses. Exact matches take priority.'
                                       )}
                                     </FormDescription>
                                     <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            )}
+
+                            {isOpenCodeGoChannelType(currentType) && (
+                              <FormField
+                                control={form.control}
+                                name='disable_opencodego_auto_cache'
+                                render={({ field }) => (
+                                  <FormItem
+                                    className={sideDrawerSwitchItemClassName()}
+                                  >
+                                    <div className='space-y-0.5'>
+                                      <FormLabel>
+                                        {t(
+                                          'Disable OpenCodeGo automatic cache breakpoint'
+                                        )}
+                                      </FormLabel>
+                                      <FormDescription>
+                                        {t(
+                                          'Keep explicit cache_control unchanged and do not add a stable 5-minute breakpoint for Chat requests routed to Messages.'
+                                        )}
+                                      </FormDescription>
+                                    </div>
+                                    <FormControl>
+                                      <Switch
+                                        checked={field.value}
+                                        onCheckedChange={field.onChange}
+                                      />
+                                    </FormControl>
                                   </FormItem>
                                 )}
                               />

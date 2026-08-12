@@ -11,6 +11,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/relayconvert"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 
@@ -39,14 +40,8 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 
 	// compute usage
 	usage := dto.Usage{}
-	if responsesResponse.Usage != nil {
-		usage.PromptTokens = responsesResponse.Usage.InputTokens
-		usage.CompletionTokens = responsesResponse.Usage.OutputTokens
-		usage.TotalTokens = responsesResponse.Usage.TotalTokens
-		if responsesResponse.Usage.InputTokensDetails != nil {
-			usage.PromptTokensDetails.CachedTokens = responsesResponse.Usage.InputTokensDetails.CachedTokens
-			usage.PromptTokensDetails.CacheWriteTokens = responsesResponse.Usage.InputTokensDetails.CacheWriteTokens
-		}
+	if responsesResponse.Usage != nil && !responsesStatusFailed(responsesResponse.Status) {
+		usage = *relayconvert.UsageFromResponsesUsage(responsesResponse.Usage)
 	}
 	// Count actual tool invocations from Output (not tool declarations).
 	for _, output := range responsesResponse.Output {
@@ -84,8 +79,19 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	var responseTextBuilder strings.Builder
 	imageCounter := &relaycommon.ImageGenerationCallCounter{}
 	imageCommitted := false
+	var inferenceCost *inferenceCostEvent
+	standardUsageSeen := false
+	completed := false
+	incomplete := false
+	failed := false
+	terminalSeen := false
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+		_, privateCost := captureStreamUsage(data, nil)
+		if privateCost != nil {
+			inferenceCost = privateCost
+			return
+		}
 
 		// 检查当前数据是否包含 completed 状态和 usage 信息
 		var streamResponse dto.ResponsesStreamResponse
@@ -94,24 +100,24 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			sr.Error(err)
 			return
 		}
+		isTerminal := streamResponse.Type == "response.completed" || streamResponse.Type == "response.done" ||
+			streamResponse.Type == "response.incomplete" || streamResponse.Type == "response.failed" ||
+			streamResponse.Type == "response.error" || streamResponse.Type == "response.cancelled" ||
+			streamResponse.Type == "response.canceled"
+		if isTerminal && terminalSeen {
+			return
+		}
+		if isTerminal {
+			terminalSeen = true
+		}
 		sendResponsesStreamData(c, streamResponse, data)
 		switch streamResponse.Type {
 		case "response.completed", "response.done":
+			completed = true
 			if streamResponse.Response != nil {
 				if streamResponse.Response.Usage != nil {
-					if streamResponse.Response.Usage.InputTokens != 0 {
-						usage.PromptTokens = streamResponse.Response.Usage.InputTokens
-					}
-					if streamResponse.Response.Usage.OutputTokens != 0 {
-						usage.CompletionTokens = streamResponse.Response.Usage.OutputTokens
-					}
-					if streamResponse.Response.Usage.TotalTokens != 0 {
-						usage.TotalTokens = streamResponse.Response.Usage.TotalTokens
-					}
-					if streamResponse.Response.Usage.InputTokensDetails != nil {
-						usage.PromptTokensDetails.CachedTokens = streamResponse.Response.Usage.InputTokensDetails.CachedTokens
-						usage.PromptTokensDetails.CacheWriteTokens = streamResponse.Response.Usage.InputTokensDetails.CacheWriteTokens
-					}
+					usage = relayconvert.UsageFromResponsesUsage(streamResponse.Response.Usage)
+					standardUsageSeen = true
 				}
 				if !imageCommitted {
 					if relaycommon.IsNonBillableResponsesStatus(streamResponse.Response.Status) {
@@ -131,7 +137,19 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				imageCounter.Commit(info)
 				imageCommitted = true
 			}
-		case "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
+		case "response.incomplete":
+			incomplete = true
+			if streamResponse.Response != nil && streamResponse.Response.Usage != nil {
+				usage = relayconvert.UsageFromResponsesUsage(streamResponse.Response.Usage)
+				standardUsageSeen = true
+			}
+			if !imageCommitted {
+				imageCounter.Reset()
+				imageCounter.Commit(info)
+				imageCommitted = true
+			}
+		case "response.failed", "response.error", "response.cancelled", "response.canceled":
+			failed = true
 			if !imageCommitted {
 				imageCounter.Reset()
 				imageCounter.Commit(info)
@@ -158,7 +176,16 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 	})
 
-	if usage.CompletionTokens == 0 {
+	if failed {
+		return &dto.Usage{}, nil
+	}
+	if !standardUsageSeen && completed && inferenceCost != nil {
+		usage = usageFromInferenceCost(inferenceCost)
+	}
+	if usage == nil {
+		usage = &dto.Usage{}
+	}
+	if !standardUsageSeen && inferenceCost == nil && completed && usage.CompletionTokens == 0 {
 		// 计算输出文本的 token 数量
 		tempStr := responseTextBuilder.String()
 		if len(tempStr) > 0 {
@@ -168,11 +195,30 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 	}
 
-	if usage.PromptTokens == 0 && usage.CompletionTokens != 0 {
+	if !incomplete && usage.PromptTokens == 0 && usage.CompletionTokens != 0 {
 		usage.PromptTokens = info.GetEstimatePromptTokens()
 	}
 
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+	if validUsageSnapshot(usage) && usage.BillingUsage == nil {
+		usage.BillingUsage = dto.NewOpenAIResponsesBillingUsage(usage)
+	}
 
 	return usage, nil
+}
+
+func responsesStatusFailed(status []byte) bool {
+	if len(status) == 0 {
+		return false
+	}
+	var value string
+	if err := common.Unmarshal(status, &value); err != nil {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "failed", "cancelled", "canceled":
+		return true
+	default:
+		return false
+	}
 }

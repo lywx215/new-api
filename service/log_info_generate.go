@@ -12,6 +12,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -314,6 +315,11 @@ func InjectTieredBillingInfo(other map[string]interface{}, relayInfo *relaycommo
 	}
 	other["billing_mode"] = "tiered_expr"
 	other["expr_b64"] = base64.StdEncoding.EncodeToString([]byte(snap.ExprString))
+	other["expr_hash"] = fmt.Sprintf("%x", common.Sha256Raw([]byte(snap.ExprString)))
+	other["billing_source"] = billing_setting.GetEffectiveBillingSource(relayInfo.OriginModelName)
+	if other["billing_source"] == "official" {
+		other["official_billing_revision"] = billing_setting.OpenCodeGoOfficialBillingRevision
+	}
 	if result != nil {
 		other["matched_tier"] = result.MatchedTier
 		if len(result.RequestRules) > 0 {

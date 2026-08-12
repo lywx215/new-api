@@ -68,6 +68,7 @@ const (
 
 type ChannelOtherSettings struct {
 	ModelProtocols                        map[string]string     `json:"model_protocols,omitempty"`
+	DisableOpenCodeGoAutoCache            bool                  `json:"disable_opencodego_auto_cache,omitempty"`
 	AzureResponsesVersion                 string                `json:"azure_responses_version,omitempty"`
 	VertexKeyType                         VertexKeyType         `json:"vertex_key_type,omitempty"` // "json" or "api_key"
 	OpenRouterEnterprise                  *bool                 `json:"openrouter_enterprise,omitempty"`
@@ -104,7 +105,7 @@ func (s *ChannelOtherSettings) ValidateModelProtocols() error {
 			return fmt.Errorf("invalid model_protocols pattern %q: %w", pattern, err)
 		}
 		switch strings.ToLower(strings.TrimSpace(protocol)) {
-		case "openai", "anthropic":
+		case "openai", "anthropic", "responses":
 		default:
 			return fmt.Errorf("invalid model_protocols protocol %q for pattern %q", protocol, pattern)
 		}

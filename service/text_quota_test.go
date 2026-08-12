@@ -283,6 +283,41 @@ func TestCalculateTextQuotaSummaryUsesOpenAIBillingUsageBeforeTopLevelUsage(t *t
 	require.Equal(t, 98, summary.Quota)
 }
 
+func TestEffectiveBillingUsageCopiesResponsesCacheDetails(t *testing.T) {
+	usage := &dto.Usage{
+		BillingUsage: dto.NewOpenAIResponsesBillingUsage(&dto.Usage{
+			InputTokens:  7215,
+			OutputTokens: 6,
+			InputTokensDetails: &dto.InputTokenDetails{
+				CachedTokens:     7203,
+				CacheWriteTokens: 9,
+			},
+		}),
+	}
+
+	effective := effectiveBillingUsage(usage)
+
+	require.Equal(t, 7215, effective.PromptTokens)
+	require.Equal(t, 6, effective.CompletionTokens)
+	require.Equal(t, 7203, effective.PromptTokensDetails.CachedTokens)
+	require.Equal(t, 9, effective.PromptTokensDetails.CacheCreationTokensTotal())
+}
+
+func TestEffectiveBillingUsageFallsBackUnsplitClaudeCacheCreationToFiveMinutes(t *testing.T) {
+	usage := &dto.Usage{
+		BillingUsage: dto.NewClaudeMessagesBillingUsage(&dto.ClaudeUsage{
+			CacheCreationInputTokens: 7221,
+			OutputTokens:             32,
+		}),
+	}
+
+	effective := effectiveBillingUsage(usage)
+
+	require.Equal(t, 7221, effective.PromptTokensDetails.CachedCreationTokens)
+	require.Equal(t, 7221, effective.ClaudeCacheCreation5mTokens)
+	require.Zero(t, effective.ClaudeCacheCreation1hTokens)
+}
+
 func TestUsageBillingPathForLog(t *testing.T) {
 	require.Equal(t, usageBillingPathAnthropic, usageBillingPathForLog(true, &dto.Usage{
 		BillingUsage: dto.NewClaudeMessagesBillingUsage(&dto.ClaudeUsage{InputTokens: 1}),

@@ -39,12 +39,27 @@ func GetBillingMode(model string) string {
 	if mode, ok := billingSetting.BillingMode[model]; ok {
 		return mode
 	}
+	if OpenCodeGoOfficialDefaultsEnabled() {
+		if _, ok := openCodeGoOfficialBillingExpr[model]; ok {
+			return BillingModeTieredExpr
+		}
+	}
 	return BillingModeRatio
 }
 
 func GetBillingExpr(model string) (string, bool) {
-	expr, ok := billingSetting.BillingExpr[model]
-	return expr, ok
+	if mode, explicit := billingSetting.BillingMode[model]; explicit {
+		if mode != BillingModeTieredExpr {
+			return "", false
+		}
+		expr, ok := billingSetting.BillingExpr[model]
+		return expr, ok
+	}
+	if OpenCodeGoOfficialDefaultsEnabled() {
+		expr, ok := openCodeGoOfficialBillingExpr[model]
+		return expr, ok
+	}
+	return "", false
 }
 
 func GetBillingModeCopy() map[string]string {
@@ -56,13 +71,26 @@ func GetBillingExprCopy() map[string]string {
 }
 
 func GetPricingSyncData(base map[string]any) map[string]any {
-	extra := make(map[string]any, 2)
-	if modes := GetBillingModeCopy(); len(modes) > 0 {
+	extra := make(map[string]any, 5)
+	modes := GetBillingModeCopy()
+	exprs := GetBillingExprCopy()
+	if OpenCodeGoOfficialDefaultsEnabled() {
+		for model, expr := range openCodeGoOfficialBillingExpr {
+			if _, overridden := modes[model]; overridden {
+				continue
+			}
+			modes[model] = BillingModeTieredExpr
+			exprs[model] = expr
+		}
+	}
+	if len(modes) > 0 {
 		extra[BillingModeField] = modes
 	}
-	if exprs := GetBillingExprCopy(); len(exprs) > 0 {
+	if len(exprs) > 0 {
 		extra[BillingExprField] = exprs
 	}
+	extra["official_billing_revision"] = OpenCodeGoOfficialBillingRevision
+	extra["effective_billing_source"] = GetEffectiveBillingSourceCopy()
 	return lo.Assign(base, extra)
 }
 

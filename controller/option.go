@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -109,6 +110,11 @@ func GetOptions(c *gin.Context) {
 		Key:   "CompletionRatioMeta",
 		Value: buildCompletionRatioMetaValue(optionValues),
 	})
+	sources, _ := common.Marshal(billing_setting.GetEffectiveBillingSourceCopy())
+	options = append(options,
+		&model.Option{Key: "official_billing_revision", Value: billing_setting.OpenCodeGoOfficialBillingRevision},
+		&model.Option{Key: "effective_billing_source", Value: string(sources)},
+	)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",

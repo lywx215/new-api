@@ -111,6 +111,8 @@ const BILLING_SECTIONS = [
         modelDefaults={getModelDefaults(settings)}
         groupDefaults={getGroupDefaults(settings)}
         toolPricesDefault={settings['tool_price_setting.prices']}
+        officialBillingRevision={settings.official_billing_revision}
+        effectiveBillingSource={settings.effective_billing_source}
         visibleTabs={['models', 'unset-models', 'tool-prices', 'upstream-sync']}
       />
     ),

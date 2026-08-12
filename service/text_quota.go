@@ -518,24 +518,32 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		other["input_tokens_total"] = billingUsage.InputTokens
 	}
 	if usage != nil && strings.HasPrefix(usage.UsageSource, "opencodego:") {
-		uncachedInputTokens := usage.PromptTokens
-		if usage.UsageSemantic != "anthropic" {
-			uncachedInputTokens = usage.PromptCacheMissTokens
+		logUsage := usage
+		if billingUsage != nil {
+			logUsage = billingUsage
+		}
+		uncachedInputTokens := logUsage.PromptTokens
+		if logUsage.UsageSemantic != "anthropic" {
+			uncachedInputTokens = logUsage.PromptCacheMissTokens
 			if uncachedInputTokens == 0 {
-				uncachedInputTokens = usage.PromptTokens -
-					usage.PromptTokensDetails.CachedTokens -
-					usage.PromptTokensDetails.CachedCreationTokens
+				uncachedInputTokens = logUsage.PromptTokens -
+					logUsage.PromptTokensDetails.CachedTokens -
+					logUsage.PromptTokensDetails.CacheCreationTokensTotal()
 				if uncachedInputTokens < 0 {
 					uncachedInputTokens = 0
 				}
 			}
 		}
 		other["uncached_input_tokens"] = uncachedInputTokens
-		other["cache_read_tokens"] = usage.PromptTokensDetails.CachedTokens
-		other["cache_write_5m_tokens"] = usage.ClaudeCacheCreation5mTokens
-		other["cache_write_1h_tokens"] = usage.ClaudeCacheCreation1hTokens
-		other["output_tokens"] = usage.CompletionTokens
-		other["reasoning_tokens"] = usage.CompletionTokenDetails.ReasoningTokens
+		other["cache_read_tokens"] = logUsage.PromptTokensDetails.CachedTokens
+		cacheWrite5mTokens := logUsage.ClaudeCacheCreation5mTokens
+		if logUsage.UsageSemantic != "anthropic" {
+			cacheWrite5mTokens = logUsage.PromptTokensDetails.CacheCreationTokensTotal()
+		}
+		other["cache_write_5m_tokens"] = cacheWrite5mTokens
+		other["cache_write_1h_tokens"] = logUsage.ClaudeCacheCreation1hTokens
+		other["output_tokens"] = logUsage.CompletionTokens
+		other["reasoning_tokens"] = logUsage.CompletionTokenDetails.ReasoningTokens
 		other["usage_source"] = usage.UsageSource
 		if usage.Cost != nil {
 			other["upstream_cost"] = usage.Cost

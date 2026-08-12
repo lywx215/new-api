@@ -16,7 +16,7 @@ func TestChannelOtherSettingsValidateModelProtocols(t *testing.T) {
 		protocols map[string]string
 		wantError string
 	}{
-		{name: "exact and wildcard", protocols: map[string]string{"glm-5.2": "openai", "minimax-*": "anthropic"}},
+		{name: "exact and wildcard", protocols: map[string]string{"glm-5.2": "openai", "minimax-*": "anthropic", "gpt-5.6-luna": "responses"}},
 		{name: "empty pattern", protocols: map[string]string{" ": "openai"}, wantError: "empty model pattern"},
 		{name: "invalid wildcard", protocols: map[string]string{"model[": "openai"}, wantError: "invalid model_protocols pattern"},
 		{name: "invalid protocol", protocols: map[string]string{"model-*": "gemini"}, wantError: "invalid model_protocols protocol"},

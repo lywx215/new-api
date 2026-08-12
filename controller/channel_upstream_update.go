@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/advancedcustom"
 	"github.com/QuantumNous/new-api/relay/channel/gemini"
 	"github.com/QuantumNous/new-api/relay/channel/ollama"
+	"github.com/QuantumNous/new-api/relay/channel/opencodego"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -422,7 +423,11 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		}
 		return item.ID
 	})
-	return normalizeModelNames(ids), nil
+	normalizedIDs := normalizeModelNames(ids)
+	if channel.Type == constant.ChannelTypeOpenCodeGo {
+		return intersectModelNames(normalizedIDs, opencodego.ModelList), nil
+	}
+	return normalizedIDs, nil
 }
 
 func fetchAdvancedCustomUpstreamModelIDs(channel *model.Channel, baseURL string) ([]string, error) {

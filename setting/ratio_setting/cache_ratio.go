@@ -135,6 +135,14 @@ func GetCacheRatioMap() map[string]float64 {
 	return cacheRatioMap.ReadAll()
 }
 
+func GetDefaultCacheRatioMap() map[string]float64 {
+	return defaultCacheRatio
+}
+
+func GetDefaultCreateCacheRatioMap() map[string]float64 {
+	return defaultCreateCacheRatio
+}
+
 // CacheRatio2JSONString converts the cache ratio map to a JSON string
 func CacheRatio2JSONString() string {
 	return cacheRatioMap.MarshalJSONString()

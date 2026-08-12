@@ -40,6 +40,13 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	if oaiError := responsesResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
+	if responsesStatusFailed(responsesResp.Status) {
+		return nil, types.NewOpenAIError(
+			fmt.Errorf("responses request ended with status %s", strings.TrimSpace(string(responsesResp.Status))),
+			types.ErrorCodeBadResponse,
+			http.StatusBadGateway,
+		)
+	}
 
 	chatResult, err := relayconvert.ConvertResponse(c, info, types.RelayFormatOpenAI, &responsesResp)
 	if err != nil {
@@ -53,7 +60,6 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		chatResp.Id = chatID
 	}
 	usage := chatResult.Usage
-
 	if usage == nil || usage.TotalTokens == 0 {
 		text := service.ExtractOutputTextFromResponses(&responsesResp)
 		usage = service.ResponseText2Usage(c, text, info.UpstreamModelName, info.GetEstimatePromptTokens())
@@ -86,6 +92,9 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 	accumulator := relayconvert.NewResponsesBufferedAccumulator()
 	var finalResponse *dto.OpenAIResponsesResponse
 	var streamErr *types.NewAPIError
+	var inferenceCost *inferenceCostEvent
+	incomplete := false
+	terminalSeen := false
 
 	scanner := helper.NewStreamScanner(resp.Body)
 	scanner.Split(bufio.ScanLines)
@@ -102,6 +111,11 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 			}
 			continue
 		}
+		_, privateCost := captureStreamUsage(data, nil)
+		if privateCost != nil {
+			inferenceCost = privateCost
+			continue
+		}
 
 		var streamResp dto.ResponsesStreamResponse
 		if err := common.UnmarshalJsonStr(data, &streamResp); err != nil {
@@ -109,11 +123,22 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 			break
 		}
+		isTerminal := streamResp.Type == "response.completed" || streamResp.Type == "response.done" ||
+			streamResp.Type == "response.incomplete" || streamResp.Type == "response.failed" ||
+			streamResp.Type == "response.error" || streamResp.Type == "response.cancelled" ||
+			streamResp.Type == "response.canceled"
+		if isTerminal && terminalSeen {
+			continue
+		}
+		if isTerminal {
+			terminalSeen = true
+		}
 		accumulator.ProcessEvent(&streamResp)
 		switch streamResp.Type {
 		case "response.completed", "response.done", "response.incomplete":
 			finalResponse = streamResp.Response
 			if streamResp.Type == "response.incomplete" {
+				incomplete = true
 				if finalResponse == nil {
 					finalResponse = &dto.OpenAIResponsesResponse{}
 				}
@@ -130,7 +155,7 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 			}
 			streamErr = types.NewOpenAIError(fmt.Errorf("responses stream error: %s", streamResp.Type), types.ErrorCodeBadResponse, http.StatusInternalServerError)
 		}
-		if streamErr != nil || finalResponse != nil {
+		if streamErr != nil {
 			break
 		}
 	}
@@ -162,7 +187,15 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 		chatResp.Id = chatID
 	}
 	usage := chatResult.Usage
-	if usage == nil || usage.TotalTokens == 0 {
+	standardUsageSeen := finalResponse.Usage != nil
+	if !standardUsageSeen && inferenceCost != nil {
+		usage = usageFromInferenceCost(inferenceCost)
+		if usage != nil {
+			usage.BillingUsage = dto.NewOpenAIResponsesBillingUsage(usage)
+			chatResp.Usage = *usage
+		}
+	}
+	if (usage == nil || usage.TotalTokens == 0) && !incomplete && inferenceCost == nil {
 		text := service.ExtractOutputTextFromResponses(finalResponse)
 		usage = service.ResponseText2Usage(c, text, info.UpstreamModelName, info.GetEstimatePromptTokens())
 		chatResp.Usage = *usage
@@ -203,6 +236,9 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
 	streamErr := (*types.NewAPIError)(nil)
+	var inferenceCost *inferenceCostEvent
+	incomplete := false
+	terminalSeen := false
 
 	if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo == nil {
 		info.ClaudeConvertInfo = &relaycommon.ClaudeConvertInfo{LastMessagesType: relaycommon.LastMessageTypeNone}
@@ -272,6 +308,11 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			sr.Stop(streamErr)
 			return
 		}
+		_, privateCost := captureStreamUsage(data, nil)
+		if privateCost != nil {
+			inferenceCost = privateCost
+			return
+		}
 
 		var streamResp dto.ResponsesStreamResponse
 		if err := common.UnmarshalJsonStr(data, &streamResp); err != nil {
@@ -280,7 +321,22 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			return
 		}
 
-		if streamResp.Type == "response.error" || streamResp.Type == "response.failed" {
+		isTerminal := streamResp.Type == "response.completed" || streamResp.Type == "response.done" ||
+			streamResp.Type == "response.incomplete" || streamResp.Type == "response.error" ||
+			streamResp.Type == "response.failed" || streamResp.Type == "response.cancelled" ||
+			streamResp.Type == "response.canceled"
+		if isTerminal && terminalSeen {
+			return
+		}
+		if isTerminal {
+			terminalSeen = true
+		}
+		if streamResp.Type == "response.incomplete" {
+			incomplete = true
+		}
+
+		if streamResp.Type == "response.error" || streamResp.Type == "response.failed" ||
+			streamResp.Type == "response.cancelled" || streamResp.Type == "response.canceled" {
 			if streamResp.Response != nil {
 				if oaiErr := streamResp.Response.GetOpenAIError(); oaiErr != nil && oaiErr.Type != "" {
 					streamErr = types.WithOpenAIError(*oaiErr, http.StatusInternalServerError)
@@ -312,7 +368,14 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	}
 
 	usage := state.Usage()
-	if usage == nil || usage.TotalTokens == 0 {
+	if (usage == nil || usage.TotalTokens == 0) && inferenceCost != nil && !incomplete {
+		usage = usageFromInferenceCost(inferenceCost)
+		if usage != nil {
+			usage.BillingUsage = dto.NewOpenAIResponsesBillingUsage(usage)
+			state.SetUsage(usage)
+		}
+	}
+	if (usage == nil || usage.TotalTokens == 0) && !incomplete && inferenceCost == nil {
 		usage = service.ResponseText2Usage(c, state.UsageText(), info.UpstreamModelName, info.GetEstimatePromptTokens())
 		state.SetUsage(usage)
 	}

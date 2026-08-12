@@ -45,6 +45,15 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, usedVa
 	inputLen := p
 	if isClaudeUsageSemantic {
 		inputLen = p + cr + cc5m + cc1h
+		if !usedVars["cr"] {
+			p += cr
+		}
+		if !usedVars["cc"] {
+			p += cc5m
+		}
+		if !usedVars["cc1h"] {
+			p += cc1h
+		}
 	}
 
 	if !isClaudeUsageSemantic {

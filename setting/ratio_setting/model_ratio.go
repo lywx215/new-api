@@ -408,6 +408,10 @@ func GetDefaultModelPriceMap() map[string]float64 {
 	return defaultModelPrice
 }
 
+func GetDefaultCompletionRatioMap() map[string]float64 {
+	return defaultCompletionRatio
+}
+
 func CompletionRatio2JSONString() string {
 	return completionRatioMap.MarshalJSONString()
 }

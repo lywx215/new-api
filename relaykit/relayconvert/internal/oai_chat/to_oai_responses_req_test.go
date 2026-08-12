@@ -129,6 +129,30 @@ func TestChatCompletionsRequestToResponsesRequestPreservesPenalties(t *testing.T
 	}
 }
 
+func TestChatCompletionsRequestToResponsesRequestPreservesCacheAndReasoning(t *testing.T) {
+	req := &dto.GeneralOpenAIRequest{
+		Model:                "gpt-5.6-luna",
+		Messages:             []dto.Message{{Role: "user", Content: "hello"}},
+		PromptCacheKey:       "stable-prefix",
+		PromptCacheOptions:   json.RawMessage(`{"mode":"explicit","ttl":"24h"}`),
+		PromptCacheRetention: json.RawMessage(`"24h"`),
+		SafetyIdentifier:     json.RawMessage(`"user-hash"`),
+		Reasoning:            json.RawMessage(`{"summary":"concise"}`),
+		ReasoningEffort:      "high",
+	}
+
+	got, err := ChatCompletionsRequestToResponsesRequest(req)
+	require.NoError(t, err)
+
+	assert.JSONEq(t, `"stable-prefix"`, string(got.PromptCacheKey))
+	assert.JSONEq(t, `{"mode":"explicit","ttl":"24h"}`, string(got.PromptCacheOptions))
+	assert.JSONEq(t, `"24h"`, string(got.PromptCacheRetention))
+	assert.JSONEq(t, `"user-hash"`, string(got.SafetyIdentifier))
+	require.NotNil(t, got.Reasoning)
+	assert.Equal(t, "high", got.Reasoning.Effort)
+	assert.Equal(t, "concise", got.Reasoning.Summary)
+}
+
 func assistantMessageWithTool(content string, id string, name string, args string) dto.Message {
 	msg := dto.Message{Role: "assistant", Content: content}
 	msg.SetToolCalls([]dto.ToolCallRequest{

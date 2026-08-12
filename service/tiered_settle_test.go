@@ -770,6 +770,24 @@ func TestBuildTieredTokenParams_Claude_WithCache(t *testing.T) {
 	}
 }
 
+func TestBuildTieredTokenParamsAnthropicIncludesUnpricedCacheInPrompt(t *testing.T) {
+	usage := &dto.Usage{
+		PromptTokens:                100,
+		PromptTokensDetails:         dto.InputTokenDetails{CachedTokens: 20},
+		ClaudeCacheCreation5mTokens: 30,
+		ClaudeCacheCreation1hTokens: 40,
+		UsageSemantic:               dto.BillingUsageSemanticAnthropic,
+	}
+
+	params := BuildTieredTokenParams(usage, true, map[string]bool{})
+	assert.Equal(t, float64(190), params.P)
+	assert.Equal(t, float64(190), params.Len)
+
+	params = BuildTieredTokenParams(usage, true, map[string]bool{"cr": true, "cc": true, "cc1h": true})
+	assert.Equal(t, float64(100), params.P)
+	assert.Equal(t, float64(190), params.Len)
+}
+
 func TestBuildTieredTokenParams_GPT_AudioOutput(t *testing.T) {
 	usage := &dto.Usage{
 		PromptTokens:     1000,

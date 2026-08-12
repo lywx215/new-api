@@ -4,18 +4,37 @@ import (
 	"path"
 	"sort"
 	"strings"
+
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/types"
 )
+
+func PassThroughCompatible(info *relaycommon.RelayInfo, incoming types.RelayFormat) bool {
+	protocol := protocolForInfo(info)
+	switch protocol {
+	case ProtocolAnthropic:
+		return incoming == types.RelayFormatClaude
+	case ProtocolResponses:
+		return incoming == types.RelayFormatOpenAIResponses
+	default:
+		return incoming == types.RelayFormatOpenAI
+	}
+}
 
 type Protocol string
 
 const (
 	ProtocolOpenAI    Protocol = "openai"
 	ProtocolAnthropic Protocol = "anthropic"
+	ProtocolResponses Protocol = "responses"
 )
 
 var modelProtocols = map[string]Protocol{
+	"grok-4.5":          ProtocolOpenAI,
+	"gpt-5.6-luna":      ProtocolResponses,
 	"glm-5.2":           ProtocolOpenAI,
 	"glm-5.1":           ProtocolOpenAI,
+	"kimi-k3":           ProtocolOpenAI,
 	"kimi-k2.7-code":    ProtocolOpenAI,
 	"kimi-k2.6":         ProtocolOpenAI,
 	"mimo-v2.5":         ProtocolOpenAI,
@@ -24,9 +43,12 @@ var modelProtocols = map[string]Protocol{
 	"deepseek-v4-flash": ProtocolOpenAI,
 	"minimax-m3":        ProtocolAnthropic,
 	"minimax-m2.7":      ProtocolAnthropic,
+	"minimax-m2.5":      ProtocolAnthropic,
+	"qwen3.8-max":       ProtocolAnthropic,
 	"qwen3.7-max":       ProtocolAnthropic,
 	"qwen3.7-plus":      ProtocolAnthropic,
 	"qwen3.6-plus":      ProtocolAnthropic,
+	"hy3":               ProtocolOpenAI,
 }
 
 func resolveProtocol(model string, overrides map[string]string) Protocol {
@@ -70,6 +92,8 @@ func parseProtocol(value string) (Protocol, bool) {
 		return ProtocolOpenAI, true
 	case ProtocolAnthropic:
 		return ProtocolAnthropic, true
+	case ProtocolResponses:
+		return ProtocolResponses, true
 	default:
 		return "", false
 	}

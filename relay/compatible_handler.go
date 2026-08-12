@@ -71,6 +71,9 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	adaptor.Init(info)
 
 	passThroughGlobal := model_setting.GetGlobalSettings().PassThroughRequestEnabled
+	if validationErr := validateOpenCodeGoPassThrough(info, types.RelayFormatOpenAI, passThroughGlobal || info.ChannelSetting.PassThroughBodyEnabled); validationErr != nil {
+		return validationErr
+	}
 	if info.RelayMode == relayconstant.RelayModeChatCompletions &&
 		!passThroughGlobal &&
 		!info.ChannelSetting.PassThroughBodyEnabled &&

@@ -18,16 +18,19 @@ func TestResolveProtocol(t *testing.T) {
 	overrides := map[string]string{
 		"qwen3.*":   "openai",
 		"custom-*":  "anthropic",
-		"custom-v1": "openai",
+		"custom-v1": "responses",
 	}
 	tests := []struct {
 		model string
 		want  Protocol
 	}{
 		{model: "glm-5.2", want: ProtocolOpenAI},
+		{model: "gpt-5.6-luna", want: ProtocolResponses},
 		{model: "minimax-m3", want: ProtocolAnthropic},
+		{model: "minimax-m2.5", want: ProtocolAnthropic},
+		{model: "qwen3.8-max", want: ProtocolOpenAI},
 		{model: "qwen3.7-max", want: ProtocolOpenAI},
-		{model: "custom-v1", want: ProtocolOpenAI},
+		{model: "custom-v1", want: ProtocolResponses},
 		{model: "custom-v2", want: ProtocolAnthropic},
 		{model: "unknown", want: ProtocolOpenAI},
 	}
@@ -35,6 +38,27 @@ func TestResolveProtocol(t *testing.T) {
 		t.Run(tt.model, func(t *testing.T) {
 			assert.Equal(t, tt.want, resolveProtocol(tt.model, overrides))
 		})
+	}
+	assert.Equal(t, ProtocolAnthropic, resolveProtocol("qwen3.8-max", nil))
+	assert.Equal(t, ProtocolAnthropic, resolveProtocol("minimax-m2.5", nil))
+}
+
+func TestPassThroughCompatibleRequiresNativeProtocol(t *testing.T) {
+	tests := []struct {
+		model  string
+		format types.RelayFormat
+		want   bool
+	}{
+		{model: "glm-5.2", format: types.RelayFormatOpenAI, want: true},
+		{model: "glm-5.2", format: types.RelayFormatClaude, want: false},
+		{model: "minimax-m2.5", format: types.RelayFormatClaude, want: true},
+		{model: "minimax-m2.5", format: types.RelayFormatOpenAI, want: false},
+		{model: "gpt-5.6-luna", format: types.RelayFormatOpenAIResponses, want: true},
+		{model: "gpt-5.6-luna", format: types.RelayFormatOpenAI, want: false},
+	}
+	for _, test := range tests {
+		info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: test.model}}
+		assert.Equal(t, test.want, PassThroughCompatible(info, test.format), test.model)
 	}
 }
 
@@ -46,6 +70,7 @@ func TestAdaptorRoutesAndAuthenticatesByModelProtocol(t *testing.T) {
 		wantHeader string
 	}{
 		{model: "glm-5.2", wantURL: "https://opencode.ai/zen/go/v1/chat/completions", wantHeader: "Bearer secret"},
+		{model: "gpt-5.6-luna", wantURL: "https://opencode.ai/zen/go/v1/responses", wantHeader: "Bearer secret"},
 		{model: "qwen3.7-max", wantURL: "https://opencode.ai/zen/go/v1/messages", wantHeader: "secret"},
 	}
 	for _, tt := range tests {
@@ -103,6 +128,11 @@ func TestKimiRequestDropsUnsupportedTemperatureOnly(t *testing.T) {
 		wantTemperature *float64
 	}{
 		{
+			name:        "unsupported Kimi K3 temperature is omitted",
+			model:       "kimi-k3",
+			temperature: 0,
+		},
+		{
 			name:        "unsupported Kimi temperature is omitted",
 			model:       "kimi-k2.7-code",
 			temperature: 0.7,
@@ -145,6 +175,27 @@ func TestKimiRequestDropsUnsupportedTemperatureOnly(t *testing.T) {
 	}
 }
 
+func TestOpenAIRequestDropsOnlyConfirmedUnsupportedTopPZero(t *testing.T) {
+	for _, model := range []string{"glm-5.2", "glm-5.1", "deepseek-v4-pro", "deepseek-v4-flash"} {
+		t.Run(model, func(t *testing.T) {
+			zero := 0.0
+			request := &dto.GeneralOpenAIRequest{Model: model, TopP: &zero}
+			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: model}}
+			converted, err := (&Adaptor{}).ConvertOpenAIRequest(nil, info, request)
+			require.NoError(t, err)
+			assert.Nil(t, converted.(*dto.GeneralOpenAIRequest).TopP)
+		})
+	}
+
+	zero := 0.0
+	request := &dto.GeneralOpenAIRequest{Model: "mimo-v2.5", TopP: &zero}
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "mimo-v2.5"}}
+	converted, err := (&Adaptor{}).ConvertOpenAIRequest(nil, info, request)
+	require.NoError(t, err)
+	require.NotNil(t, converted.(*dto.GeneralOpenAIRequest).TopP)
+	assert.Zero(t, *converted.(*dto.GeneralOpenAIRequest).TopP)
+}
+
 func TestAdaptorConvertsAcrossClientAndModelProtocols(t *testing.T) {
 	t.Run("OpenAI client to Anthropic model", func(t *testing.T) {
 		info := &relaycommon.RelayInfo{
@@ -173,6 +224,15 @@ func TestAdaptorConvertsAcrossClientAndModelProtocols(t *testing.T) {
 		converted, err := (&Adaptor{}).ConvertClaudeRequest(nil, info, request)
 		require.NoError(t, err)
 		assert.IsType(t, &dto.GeneralOpenAIRequest{}, converted)
+	})
+
+	t.Run("OpenAI client to Responses model", func(t *testing.T) {
+		info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "gpt-5.6-luna"}}
+		request := &dto.GeneralOpenAIRequest{Model: "gpt-5.6-luna", Messages: []dto.Message{{Role: "user", Content: "hello"}}}
+
+		converted, err := (&Adaptor{}).ConvertOpenAIRequest(nil, info, request)
+		require.NoError(t, err)
+		assert.IsType(t, &dto.OpenAIResponsesRequest{}, converted)
 	})
 }
 

@@ -98,6 +98,17 @@ func usageFromBillingUsage(usage *dto.Usage) (*dto.Usage, bool) {
 
 func usageFromOpenAIBillingUsage(billingUsage *dto.BillingUsage) *dto.Usage {
 	usage := *billingUsage.OpenAIUsage
+	if usage.InputTokensDetails != nil {
+		if usage.PromptTokensDetails.CachedTokens == 0 {
+			usage.PromptTokensDetails.CachedTokens = usage.InputTokensDetails.CachedTokens
+		}
+		if usage.PromptTokensDetails.CachedCreationTokens == 0 {
+			usage.PromptTokensDetails.CachedCreationTokens = usage.InputTokensDetails.CachedCreationTokens
+		}
+		if usage.PromptTokensDetails.CacheWriteTokens == 0 {
+			usage.PromptTokensDetails.CacheWriteTokens = usage.InputTokensDetails.CacheWriteTokens
+		}
+	}
 	if usage.PromptTokens == 0 && usage.InputTokens > 0 {
 		usage.PromptTokens = usage.InputTokens
 	}
@@ -128,6 +139,12 @@ func usageFromClaudeBillingUsage(billingUsage *dto.BillingUsage) *dto.Usage {
 	cacheCreation1h := claudeUsage.GetCacheCreation1hTokens()
 	if cacheCreation1h == 0 {
 		cacheCreation1h = claudeUsage.ClaudeCacheCreation1hTokens
+	}
+	if cacheCreation5m == 0 && cacheCreation1h == 0 && claudeUsage.CacheCreationInputTokens > 0 {
+		// Some Messages providers report only the aggregate cache-creation count.
+		// Treat that unsplit total as the default 5m bucket. Current OpenCodeGo
+		// official prices intentionally charge 5m and 1h creation at the same rate.
+		cacheCreation5m = claudeUsage.CacheCreationInputTokens
 	}
 
 	usage := &dto.Usage{

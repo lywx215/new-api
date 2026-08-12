@@ -195,7 +195,10 @@ func InitDB() (err error) {
 		sqlDB.SetConnMaxLifetime(time.Second * time.Duration(common.GetEnvOrDefault("SQL_MAX_LIFETIME", 60)))
 
 		if !common.IsMasterNode {
-			return verifyOpenCodeGoChannelTypeMigration()
+			if err := verifyOpenCodeGoChannelTypeMigration(); err != nil {
+				return err
+			}
+			return loadOpenCodeGoOfficialPricingState(DB)
 		}
 		if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
 			//_, _ = sqlDB.Exec("ALTER TABLE channels MODIFY model_mapping TEXT;") // TODO: delete this line when most users have upgraded
@@ -312,6 +315,9 @@ func migrateDB() error {
 		}
 	}
 	if err := migrateOpenCodeGoChannelTypeOnStartup(); err != nil {
+		return err
+	}
+	if err := migrateOpenCodeGoOfficialPricingOnStartup(); err != nil {
 		return err
 	}
 	return nil

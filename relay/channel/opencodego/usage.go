@@ -60,7 +60,7 @@ func normalizeUsage(usage *dto.Usage, protocol Protocol) OpenCodeGoUsage {
 		Source:       source,
 	}
 	if normalized.CacheWrite5m == 0 && normalized.CacheWrite1h == 0 {
-		normalized.CacheWrite5m = int64(usage.PromptTokensDetails.CachedCreationTokens)
+		normalized.CacheWrite5m = int64(usage.PromptTokensDetails.CacheCreationTokensTotal())
 	}
 
 	if protocol == ProtocolAnthropic || usage.UsageSemantic == "anthropic" {
@@ -68,7 +68,7 @@ func normalizeUsage(usage *dto.Usage, protocol Protocol) OpenCodeGoUsage {
 		usage.UsageSemantic = "anthropic"
 	} else {
 		uncached := usage.PromptTokens - usage.PromptTokensDetails.CachedTokens -
-			usage.PromptTokensDetails.CachedCreationTokens
+			usage.PromptTokensDetails.CacheCreationTokensTotal()
 		if usage.PromptCacheMissTokens > 0 {
 			uncached = usage.PromptCacheMissTokens
 		}

@@ -381,33 +381,48 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 	}
 
 	out := &dto.OpenAIResponsesRequest{
-		Model:             req.Model,
-		Input:             inputRaw,
-		Instructions:      instructionsRaw,
-		Stream:            req.Stream,
-		Temperature:       req.Temperature,
-		Text:              textRaw,
-		ToolChoice:        toolChoiceRaw,
-		Tools:             toolsRaw,
-		TopP:              topP,
-		FrequencyPenalty:  frequencyPenaltyRaw,
-		PresencePenalty:   presencePenaltyRaw,
-		User:              req.User,
-		ParallelToolCalls: parallelToolCallsRaw,
-		Store:             req.Store,
-		Metadata:          req.Metadata,
-		EnableThinking:    req.EnableThinking,
-		ThinkingBudget:    req.ThinkingBudget,
+		Model:                req.Model,
+		Input:                inputRaw,
+		Instructions:         instructionsRaw,
+		Stream:               req.Stream,
+		Temperature:          req.Temperature,
+		Text:                 textRaw,
+		ToolChoice:           toolChoiceRaw,
+		Tools:                toolsRaw,
+		TopP:                 topP,
+		FrequencyPenalty:     frequencyPenaltyRaw,
+		PresencePenalty:      presencePenaltyRaw,
+		User:                 req.User,
+		ParallelToolCalls:    parallelToolCallsRaw,
+		Store:                req.Store,
+		Metadata:             req.Metadata,
+		PromptCacheOptions:   req.PromptCacheOptions,
+		PromptCacheRetention: req.PromptCacheRetention,
+		SafetyIdentifier:     req.SafetyIdentifier,
+		EnableThinking:       req.EnableThinking,
+		ThinkingBudget:       req.ThinkingBudget,
+	}
+	if req.PromptCacheKey != "" {
+		out.PromptCacheKey, _ = kitutil.Marshal(req.PromptCacheKey)
 	}
 	if req.MaxTokens != nil || req.MaxCompletionTokens != nil {
 		out.MaxOutputTokens = lo.ToPtr(maxOutputTokens)
 	}
 
-	if req.ReasoningEffort != "" {
+	if len(req.Reasoning) > 0 {
+		var reasoning dto.Reasoning
+		if err := kitutil.Unmarshal(req.Reasoning, &reasoning); err != nil {
+			return nil, fmt.Errorf("invalid reasoning object: %w", err)
+		}
+		out.Reasoning = &reasoning
+	}
+	if req.ReasoningEffort != "" && out.Reasoning == nil {
 		out.Reasoning = &dto.Reasoning{
 			Effort:  req.ReasoningEffort,
 			Summary: "detailed",
 		}
+	} else if req.ReasoningEffort != "" && out.Reasoning.Effort == "" {
+		out.Reasoning.Effort = req.ReasoningEffort
 	}
 
 	return out, nil
