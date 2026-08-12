@@ -19,10 +19,11 @@ For commercial licensing, please contact support@quantumnous.com
 import { z } from 'zod'
 
 import {
-  CHANNEL_STATUS,
   CHANNEL_TYPE_OPENCODE_GO,
+  CHANNEL_STATUS,
   ERROR_MESSAGES,
   MODEL_FETCHABLE_TYPES,
+  isOpenCodeGoChannelType,
 } from '../constants'
 import type { Channel } from '../types'
 import {
@@ -451,7 +452,9 @@ export function transformChannelToFormDefaults(
 
   return {
     name: channel.name || '',
-    type: channel.type,
+    type: isOpenCodeGoChannelType(channel.type)
+      ? CHANNEL_TYPE_OPENCODE_GO
+      : channel.type,
     base_url: channel.base_url || '',
     key: '', // Never populate key from backend for security
     openai_organization: channel.openai_organization || '',
@@ -634,7 +637,7 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
   }
 
   if (
-    formData.type === CHANNEL_TYPE_OPENCODE_GO &&
+    isOpenCodeGoChannelType(formData.type) &&
     formData.model_protocols?.trim()
   ) {
     settingsObj.model_protocols = JSON.parse(formData.model_protocols)

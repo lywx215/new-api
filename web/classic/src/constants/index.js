@@ -19,7 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 
 export {
   CHANNEL_OPTIONS,
+  CHANNEL_TYPE_LEGACY_OPENCODE_GO,
   CHANNEL_TYPE_OPENCODE_GO,
+  isOpenCodeGoChannelType,
   MODEL_FETCHABLE_CHANNEL_TYPES,
   MODEL_TABLE_PAGE_SIZE,
 } from './channel.constants';

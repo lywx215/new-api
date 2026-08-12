@@ -137,13 +137,13 @@ import {
 import {
   ADD_MODE_OPTIONS,
   CHANNEL_STATUS_LABELS,
-  CHANNEL_TYPE_OPENCODE_GO,
   CHANNEL_TYPE_OPTIONS,
   CHANNEL_TYPE_WARNINGS,
   ERROR_MESSAGES,
   FIELD_DESCRIPTIONS,
   FIELD_PLACEHOLDERS,
   MODEL_FETCHABLE_TYPES,
+  isOpenCodeGoChannelType,
 } from '../../constants'
 import { useChannelMutateForm } from '../../hooks/use-channel-mutate-form'
 import {
@@ -2753,7 +2753,7 @@ export function ChannelMutateDrawer({
                               />
                             )}
 
-                            {currentType === CHANNEL_TYPE_OPENCODE_GO && (
+                            {isOpenCodeGoChannelType(currentType) && (
                               <FormField
                                 control={form.control}
                                 name='model_protocols'

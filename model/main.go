@@ -312,6 +312,9 @@ func migrateDB() error {
 			return err
 		}
 	}
+	if err := migrateOpenCodeGoChannelTypeBridge(); err != nil {
+		return err
+	}
 	return nil
 }
 

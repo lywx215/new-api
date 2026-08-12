@@ -128,7 +128,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		if lastStreamData != "" {
 			clientData := lastStreamData
 			if info.RelayFormat == types.RelayFormatOpenAI {
-				includeUsage := info.ShouldIncludeUsage && info.ChannelType != constant.ChannelTypeOpenCodeGo
+				includeUsage := info.ShouldIncludeUsage && !constant.IsOpenCodeGoChannelType(info.ChannelType)
 				clientData = streamDataForClient(lastStreamData, includeUsage)
 			}
 			if err := HandleStreamFormat(c, info, clientData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
@@ -189,7 +189,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 
 	if info.RelayFormat == types.RelayFormatOpenAI {
 		if shouldSendLastResp {
-			includeUsage := info.ShouldIncludeUsage && info.ChannelType != constant.ChannelTypeOpenCodeGo
+			includeUsage := info.ShouldIncludeUsage && !constant.IsOpenCodeGoChannelType(info.ChannelType)
 			clientData := streamDataForClient(lastStreamData, includeUsage)
 			_ = sendStreamData(c, info, clientData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
 		}
@@ -276,13 +276,13 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
-		if usageModified || (info.ChannelType == constant.ChannelTypeOpenCodeGo && hasCanonicalCacheUsage(&simpleResponse.Usage)) {
+		if usageModified || (constant.IsOpenCodeGoChannelType(info.ChannelType) && hasCanonicalCacheUsage(&simpleResponse.Usage)) {
 			var bodyMap map[string]interface{}
 			err = common.Unmarshal(responseBody, &bodyMap)
 			if err != nil {
 				return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 			}
-			if info.ChannelType == constant.ChannelTypeOpenCodeGo {
+			if constant.IsOpenCodeGoChannelType(info.ChannelType) {
 				mergeCanonicalCacheUsage(bodyMap, &simpleResponse.Usage)
 			} else {
 				bodyMap["usage"] = simpleResponse.Usage

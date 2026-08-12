@@ -16,7 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { CHANNEL_TYPE_OPENCODE_GO, CHANNEL_TYPES } from '../constants'
+import {
+  CHANNEL_TYPE_LEGACY_OPENCODE_GO,
+  CHANNEL_TYPE_OPENCODE_GO,
+  CHANNEL_TYPES,
+} from '../constants'
 
 // ============================================================================
 // Channel Type Configuration
@@ -156,6 +160,12 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       other:
         'Routes models to OpenAI or Anthropic automatically; model protocol patterns can be overridden.',
     },
+  },
+  [CHANNEL_TYPE_LEGACY_OPENCODE_GO]: {
+    id: CHANNEL_TYPE_LEGACY_OPENCODE_GO,
+    name: CHANNEL_TYPES[CHANNEL_TYPE_LEGACY_OPENCODE_GO],
+    icon: 'openai',
+    defaultBaseUrl: 'https://opencode.ai/zen/go',
   },
 }
 

@@ -21,7 +21,15 @@ For commercial licensing, please contact support@quantumnous.com
 // All label/name values are i18n keys; use t(value) when displaying.
 // ============================================================================
 
-export const CHANNEL_TYPE_OPENCODE_GO = 59
+export const CHANNEL_TYPE_LEGACY_OPENCODE_GO = 59
+export const CHANNEL_TYPE_OPENCODE_GO = 99
+
+export function isOpenCodeGoChannelType(type: number): boolean {
+  return (
+    type === CHANNEL_TYPE_LEGACY_OPENCODE_GO ||
+    type === CHANNEL_TYPE_OPENCODE_GO
+  )
+}
 
 export const CHANNEL_TYPES = {
   0: 'Unknown',
@@ -79,6 +87,7 @@ export const CHANNEL_TYPES = {
   56: 'Replicate',
   57: 'ChatGPT Subscription (Codex)',
   58: 'Advanced Custom',
+  [CHANNEL_TYPE_LEGACY_OPENCODE_GO]: 'OpenCodeGo',
   [CHANNEL_TYPE_OPENCODE_GO]: 'OpenCodeGo',
 } as const
 
@@ -145,7 +154,11 @@ export const CHANNEL_TYPE_OPTIONS: { value: number; label: string }[] = (() => {
   }
   for (const [key, label] of Object.entries(CHANNEL_TYPES)) {
     const id = Number(key)
-    if (id !== 0 && !seen.has(id)) {
+    if (
+      id !== 0 &&
+      id !== CHANNEL_TYPE_LEGACY_OPENCODE_GO &&
+      !seen.has(id)
+    ) {
       ordered.push({ value: id, label })
     }
   }
@@ -443,6 +456,7 @@ export const MODEL_FETCHABLE_TYPES = new Set([
   43,
   47,
   48,
+  CHANNEL_TYPE_LEGACY_OPENCODE_GO,
   CHANNEL_TYPE_OPENCODE_GO,
 ])
 

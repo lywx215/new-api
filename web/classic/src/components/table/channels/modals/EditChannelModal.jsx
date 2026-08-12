@@ -30,6 +30,7 @@ import { useIsMobile } from '../../../../hooks/common/useIsMobile';
 import {
   CHANNEL_OPTIONS,
   CHANNEL_TYPE_OPENCODE_GO,
+  isOpenCodeGoChannelType,
   MODEL_FETCHABLE_CHANNEL_TYPES,
 } from '../../../../constants';
 import {
@@ -980,6 +981,9 @@ const EditChannelModal = (props) => {
         data.base_url = 'https://ark.cn-beijing.volces.com';
       }
 
+      if (isOpenCodeGoChannelType(data.type)) {
+        data.type = CHANNEL_TYPE_OPENCODE_GO;
+      }
       initialBaseUrlRef.current = data.base_url || '';
       setInputs(data);
       if (formApiRef.current) {
@@ -1786,7 +1790,7 @@ const EditChannelModal = (props) => {
       delete settings.vertex_key_type;
     }
 
-    if (localInputs.type === CHANNEL_TYPE_OPENCODE_GO) {
+    if (isOpenCodeGoChannelType(localInputs.type)) {
       try {
         if (localInputs.model_protocols?.trim()) {
           settings.model_protocols = JSON.parse(localInputs.model_protocols);
@@ -2528,7 +2532,7 @@ const EditChannelModal = (props) => {
                     </>
                   )}
 
-                  {inputs.type === CHANNEL_TYPE_OPENCODE_GO && (
+                  {isOpenCodeGoChannelType(inputs.type) && (
                     <Form.TextArea
                       field='model_protocols'
                       label={t('模型协议覆盖')}

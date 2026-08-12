@@ -17,7 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-export const CHANNEL_TYPE_OPENCODE_GO = 59;
+export const CHANNEL_TYPE_LEGACY_OPENCODE_GO = 59;
+export const CHANNEL_TYPE_OPENCODE_GO = 99;
+
+export const isOpenCodeGoChannelType = (type) =>
+  type === CHANNEL_TYPE_LEGACY_OPENCODE_GO ||
+  type === CHANNEL_TYPE_OPENCODE_GO;
 
 export const CHANNEL_OPTIONS = [
   { value: 1, color: 'green', label: 'OpenAI' },
@@ -217,6 +222,7 @@ export const MODEL_FETCHABLE_CHANNEL_TYPES = new Set([
   42,
   48,
   43,
+  CHANNEL_TYPE_LEGACY_OPENCODE_GO,
   CHANNEL_TYPE_OPENCODE_GO,
 ]);
 
