@@ -44,7 +44,7 @@ func migrateOpenCodeGoOfficialPricing(db *gorm.DB, enabled bool) (map[string]str
 	activated := false
 	err := db.Transaction(func(tx *gorm.DB) error {
 		var marker Option
-		err := lockForUpdate(tx).Where("key = ?", openCodeGoOfficialPricingMigrationKey).First(&marker).Error
+		err := optionByKeyForUpdate(tx, openCodeGoOfficialPricingMigrationKey).First(&marker).Error
 		if err == nil && marker.Value == billing_setting.OpenCodeGoOfficialBillingRevision {
 			activated = true
 			return nil
@@ -64,7 +64,7 @@ func migrateOpenCodeGoOfficialPricing(db *gorm.DB, enabled bool) (map[string]str
 		var options []Option
 		keys := append([]string{}, legacyOpenCodeGoPricingKeys...)
 		keys = append(keys, "billing_setting.billing_mode", "billing_setting.billing_expr")
-		if err := tx.Where("key IN ?", keys).Find(&options).Error; err != nil {
+		if err := optionByKeys(tx, keys).Find(&options).Error; err != nil {
 			return err
 		}
 		values := make(map[string]string, len(options))
@@ -166,7 +166,7 @@ func loadOpenCodeGoOfficialPricingState(db *gorm.DB) error {
 		return nil
 	}
 	var marker Option
-	err := db.Where("key = ? AND value = ?", openCodeGoOfficialPricingMigrationKey, billing_setting.OpenCodeGoOfficialBillingRevision).
+	err := optionByKey(db, openCodeGoOfficialPricingMigrationKey).Where("value = ?", billing_setting.OpenCodeGoOfficialBillingRevision).
 		First(&marker).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		billing_setting.SetOpenCodeGoOfficialDefaultsEnabled(false)

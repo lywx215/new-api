@@ -21,7 +21,7 @@ func migrateOpenCodeGoChannelType(db *gorm.DB, enabled bool, requireResolution b
 	var migrated int64
 	err := db.Transaction(func(tx *gorm.DB) error {
 		var marker Option
-		err := lockForUpdate(tx).Where("key = ?", openCodeGoChannelTypeMigrationKey).First(&marker).Error
+		err := optionByKeyForUpdate(tx, openCodeGoChannelTypeMigrationKey).First(&marker).Error
 		if err == nil && marker.Value == openCodeGoChannelTypeMigrationComplete {
 			return nil
 		}
@@ -82,7 +82,7 @@ func verifyOpenCodeGoChannelTypeMigration() error {
 		return nil
 	}
 	var marker Option
-	if err := DB.Where("key = ? AND value = ?", openCodeGoChannelTypeMigrationKey, openCodeGoChannelTypeMigrationComplete).
+	if err := optionByKey(DB, openCodeGoChannelTypeMigrationKey).Where("value = ?", openCodeGoChannelTypeMigrationComplete).
 		First(&marker).Error; err != nil {
 		return fmt.Errorf("OpenCodeGo channel type migration is not complete on this database; start the migration-enabled primary instance first: %w", err)
 	}
