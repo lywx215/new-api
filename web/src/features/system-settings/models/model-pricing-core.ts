@@ -40,6 +40,13 @@ export type ModelPricingFormValues = z.infer<
 >
 
 export type PricingMode = 'per-token' | 'per-request' | 'tiered_expr'
+export type BillingModeOverride = 'ratio' | 'tiered_expr'
+
+export function getBillingModeOverride(
+  pricingMode: PricingMode
+): BillingModeOverride {
+  return pricingMode === 'tiered_expr' ? 'tiered_expr' : 'ratio'
+}
 
 export type LaneKey =
   | 'completion'

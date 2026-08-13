@@ -33,9 +33,17 @@ export function ModelBillingModeBadge(props: ModelBillingModeBadgeProps) {
   const { t } = useTranslation()
   let label = t('Per Request')
   let variant: StatusVariant = 'purple'
+  let title: string | undefined
 
   if (isDynamicPricingModel(props.model)) {
-    label = t('Dynamic Pricing')
+    if (props.model.billing_scope === 'channel_type') {
+      label = t('OpenCodeGo channel pricing')
+      title = t(
+        'Official pricing applies only when the request is routed through an OpenCodeGo channel.'
+      )
+    } else {
+      label = t('Dynamic Pricing')
+    }
     variant = 'warning'
   } else if (isTokenBasedModel(props.model)) {
     label = t('Token-based')
@@ -49,6 +57,7 @@ export function ModelBillingModeBadge(props: ModelBillingModeBadgeProps) {
       copyable={false}
       size='sm'
       className={props.className}
+      title={title}
     />
   )
 }

@@ -47,6 +47,42 @@ func GetGroupEnabledModels(group string) []string {
 	return models
 }
 
+// GetGroupsEnabledModelChannelTypes returns the enabled channel types available
+// for each model in any of the supplied groups. Pricing callers use this to
+// avoid treating a channel-scoped default as a global model price.
+func GetGroupsEnabledModelChannelTypes(groups []string) (map[string][]int, error) {
+	result := make(map[string][]int)
+	if len(groups) == 0 {
+		return result, nil
+	}
+
+	var abilities []AbilityWithChannel
+	err := DB.Table("abilities").
+		Select("abilities.model, channels.type as channel_type").
+		Joins("inner join channels on abilities.channel_id = channels.id").
+		Where("abilities."+commonGroupCol+" IN ? AND abilities.enabled = ?", groups, true).
+		Distinct().
+		Scan(&abilities).Error
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]map[int]struct{})
+	for _, ability := range abilities {
+		modelTypes := seen[ability.Model]
+		if modelTypes == nil {
+			modelTypes = make(map[int]struct{})
+			seen[ability.Model] = modelTypes
+		}
+		if _, ok := modelTypes[ability.ChannelType]; ok {
+			continue
+		}
+		modelTypes[ability.ChannelType] = struct{}{}
+		result[ability.Model] = append(result[ability.Model], ability.ChannelType)
+	}
+	return result, nil
+}
+
 func GetEnabledModels() []string {
 	var models []string
 	// Find distinct models

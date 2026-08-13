@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -319,6 +320,61 @@ func TestListModelsIncludesTieredBillingModel(t *testing.T) {
 	require.True(t, ok)
 	require.Empty(t, missingExprPricing.BillingMode)
 	require.Empty(t, missingExprPricing.BillingExpr)
+}
+
+func TestListModelsAndPricingScopeOfficialDefaultsToOpenCodeGoAbilities(t *testing.T) {
+	withSelfUseModeDisabled(t)
+	db := setupModelListControllerTestDB(t)
+	withTieredBillingConfig(t, map[string]string{}, map[string]string{})
+	originalRatios := ratio_setting.ModelRatio2JSONString()
+	originalPrices := ratio_setting.ModelPrice2JSONString()
+	originalOfficialEnabled := billing_setting.OpenCodeGoOfficialDefaultsEnabled()
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(originalRatios))
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(originalPrices))
+		billing_setting.SetOpenCodeGoOfficialDefaultsEnabled(originalOfficialEnabled)
+		model.InvalidatePricingCache()
+	})
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{}`))
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{}`))
+	billing_setting.SetOpenCodeGoOfficialDefaultsEnabled(true)
+	model.InvalidatePricingCache()
+	require.NoError(t, db.Create(&model.User{
+		Id:       1010,
+		Username: "channel-scoped-pricing-user",
+		Password: "password",
+		Group:    "default",
+		Status:   common.UserStatusEnabled,
+	}).Error)
+	require.NoError(t, db.Create(&[]model.Channel{
+		{Id: 901, Type: constant.ChannelTypeOpenCodeGo, Name: "opencodego", Key: "test", Group: "default", Models: "grok-4.5,qwen3.8-max", Status: common.ChannelStatusEnabled},
+		{Id: 902, Type: constant.ChannelTypeOpenAI, Name: "openai", Key: "test", Group: "default", Models: "hy3,qwen3.8-max", Status: common.ChannelStatusEnabled},
+	}).Error)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "default", Model: "grok-4.5", ChannelId: 901, Enabled: true},
+		{Group: "default", Model: "hy3", ChannelId: 902, Enabled: true},
+		{Group: "default", Model: "qwen3.8-max", ChannelId: 901, Enabled: true},
+		{Group: "default", Model: "qwen3.8-max", ChannelId: 902, Enabled: true},
+	}).Error)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	ctx.Set("id", 1010)
+	ListModels(ctx, constant.ChannelTypeOpenAI)
+
+	ids := decodeListModelsResponse(t, recorder)
+	assert.Contains(t, ids, "grok-4.5")
+	assert.Contains(t, ids, "qwen3.8-max")
+	assert.NotContains(t, ids, "hy3")
+
+	model.InvalidatePricingCache()
+	pricing := pricingByModelName(model.GetPricing())
+	assert.Empty(t, pricing["hy3"].BillingMode)
+	assert.Equal(t, billing_setting.BillingModeTieredExpr, pricing["grok-4.5"].BillingMode)
+	assert.Equal(t, "channel_type", pricing["grok-4.5"].BillingScope)
+	assert.Equal(t, []int{constant.ChannelTypeOpenCodeGo}, pricing["grok-4.5"].BillingChannelTypes)
+	assert.Equal(t, "channel_type", pricing["qwen3.8-max"].BillingScope)
 }
 
 func TestListModelsUsesAdvancedCustomEndpointTypesFromPricingCache(t *testing.T) {

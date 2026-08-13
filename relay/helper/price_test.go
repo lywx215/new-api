@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -13,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -62,6 +64,52 @@ func TestModelPriceHelperTieredUsesPreloadedRequestInput(t *testing.T) {
 	require.Equal(t, "stream", info.TieredBillingSnapshot.EstimatedTier)
 	require.Equal(t, billing_setting.BillingModeTieredExpr, info.TieredBillingSnapshot.BillingMode)
 	require.Equal(t, common.QuotaPerUnit, info.TieredBillingSnapshot.QuotaPerUnit)
+}
+
+func TestModelPriceHelperRepricesOfficialModelBySelectedChannel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	originalRatios := ratio_setting.ModelRatio2JSONString()
+	originalOfficialEnabled := billing_setting.OpenCodeGoOfficialDefaultsEnabled()
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		saved[key] = value
+		return nil
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(originalRatios))
+		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
+		billing_setting.SetOpenCodeGoOfficialDefaultsEnabled(originalOfficialEnabled)
+	})
+
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode": `{}`,
+		"billing_setting.billing_expr": `{}`,
+	}))
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"hy3":4}`))
+	billing_setting.SetOpenCodeGoOfficialDefaultsEnabled(true)
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Set("group", "default")
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "hy3",
+		UserGroup:       "default",
+		UsingGroup:      "default",
+	}
+	meta := &types.TokenCountMeta{MaxTokens: 32}
+
+	officialPrice, err := ModelPriceHelperForChannel(ctx, info, 100, meta, constant.ChannelTypeOpenCodeGo)
+	require.NoError(t, err)
+	assert.Equal(t, "official", officialPrice.BillingSource)
+	assert.Equal(t, constant.ChannelTypeOpenCodeGo, officialPrice.BillingChannelType)
+	require.NotNil(t, info.TieredBillingSnapshot)
+	assert.Equal(t, constant.ChannelTypeOpenCodeGo, info.TieredBillingSnapshot.ChannelType)
+
+	legacyPrice, err := ModelPriceHelperForChannel(ctx, info, 100, meta, constant.ChannelTypeOpenAI)
+	require.NoError(t, err)
+	assert.Equal(t, "legacy", legacyPrice.BillingSource)
+	assert.Equal(t, 4.0, legacyPrice.ModelRatio)
+	assert.Equal(t, constant.ChannelTypeOpenAI, legacyPrice.BillingChannelType)
+	assert.Nil(t, info.TieredBillingSnapshot)
 }
 
 func TestModelPriceHelperTieredPreConsumeMaxTokensFallback(t *testing.T) {

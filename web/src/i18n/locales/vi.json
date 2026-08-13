@@ -5272,6 +5272,8 @@
     "Zero retention": "Không lưu dữ liệu",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "OpenCodeGo channel pricing": "Giá kênh OpenCodeGo",
+    "Official pricing applies only when the request is routed through an OpenCodeGo channel.": "Giá chính thức chỉ áp dụng khi yêu cầu được định tuyến qua kênh OpenCodeGo."
   }
 }

@@ -5272,6 +5272,8 @@
     "Zero retention": "零數據保留",
     "Zhipu": "智譜",
     "Zhipu V4": "智譜 V4",
-    "Zoom": "縮放"
+    "Zoom": "縮放",
+    "OpenCodeGo channel pricing": "OpenCodeGo 渠道定價",
+    "Official pricing applies only when the request is routed through an OpenCodeGo channel.": "官方定價僅在請求路由至 OpenCodeGo 渠道時生效。"
   }
 }

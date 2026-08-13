@@ -80,6 +80,10 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	other["cache_ratio"] = cacheRatio
 	other["model_price"] = modelPrice
 	other["user_group_ratio"] = userGroupRatio
+	if relayInfo.PriceData.BillingSource != "" {
+		other["pricing_source"] = relayInfo.PriceData.BillingSource
+		other["pricing_channel_type"] = relayInfo.PriceData.BillingChannelType
+	}
 	other["frt"] = float64(relayInfo.FirstResponseTime.UnixMilli() - relayInfo.StartTime.UnixMilli())
 	if relayInfo.ReasoningEffort != "" {
 		other["reasoning_effort"] = relayInfo.ReasoningEffort
@@ -316,7 +320,8 @@ func InjectTieredBillingInfo(other map[string]interface{}, relayInfo *relaycommo
 	other["billing_mode"] = "tiered_expr"
 	other["expr_b64"] = base64.StdEncoding.EncodeToString([]byte(snap.ExprString))
 	other["expr_hash"] = fmt.Sprintf("%x", common.Sha256Raw([]byte(snap.ExprString)))
-	other["billing_source"] = billing_setting.GetEffectiveBillingSource(relayInfo.OriginModelName)
+	other["billing_source"] = snap.BillingSource
+	other["billing_channel_type"] = snap.ChannelType
 	if other["billing_source"] == "official" {
 		other["official_billing_revision"] = billing_setting.OpenCodeGoOfficialBillingRevision
 	}

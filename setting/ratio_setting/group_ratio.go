@@ -3,6 +3,8 @@ package ratio_setting
 import (
 	"encoding/json"
 	"errors"
+	"math"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/config"
@@ -73,6 +75,9 @@ func GroupRatio2JSONString() string {
 }
 
 func UpdateGroupRatioByJSONString(jsonStr string) error {
+	if err := CheckGroupRatio(jsonStr); err != nil {
+		return err
+	}
 	return types.LoadFromJsonString(groupRatioMap, jsonStr)
 }
 
@@ -102,18 +107,46 @@ func GroupGroupRatio2JSONString() string {
 }
 
 func UpdateGroupGroupRatioByJSONString(jsonStr string) error {
+	if err := CheckGroupGroupRatio(jsonStr); err != nil {
+		return err
+	}
 	return types.LoadFromJsonString(groupGroupRatioMap, jsonStr)
 }
 
 func CheckGroupRatio(jsonStr string) error {
 	checkGroupRatio := make(map[string]float64)
-	err := json.Unmarshal([]byte(jsonStr), &checkGroupRatio)
+	err := common.UnmarshalJsonStr(jsonStr, &checkGroupRatio)
 	if err != nil {
 		return err
 	}
 	for name, ratio := range checkGroupRatio {
-		if ratio < 0 {
+		if ratio < 0 || math.IsNaN(ratio) || math.IsInf(ratio, 0) {
 			return errors.New("group ratio must be not less than 0: " + name)
+		}
+	}
+	return nil
+}
+
+func CheckGroupGroupRatio(jsonStr string) error {
+	checkGroupGroupRatio := make(map[string]map[string]json.RawMessage)
+	if err := common.UnmarshalJsonStr(jsonStr, &checkGroupGroupRatio); err != nil {
+		return err
+	}
+	for userGroup, groupRatios := range checkGroupGroupRatio {
+		if groupRatios == nil {
+			return errors.New("special group ratio must be an object: " + userGroup)
+		}
+		for targetGroup, rawRatio := range groupRatios {
+			if strings.TrimSpace(string(rawRatio)) == "null" {
+				return errors.New("special group ratio must be a number: " + userGroup + " -> " + targetGroup)
+			}
+			var ratio float64
+			if err := common.Unmarshal(rawRatio, &ratio); err != nil {
+				return errors.New("special group ratio must be a number: " + userGroup + " -> " + targetGroup)
+			}
+			if ratio < 0 || math.IsNaN(ratio) || math.IsInf(ratio, 0) {
+				return errors.New("special group ratio must be a finite number not less than 0: " + userGroup + " -> " + targetGroup)
+			}
 		}
 	}
 	return nil

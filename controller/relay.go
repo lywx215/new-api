@@ -200,7 +200,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			break
 		}
 		addUsedChannel(c, channel.Id)
-		if billingErr := service.PrepareTieredBillingForSelectedGroup(c, relayInfo); billingErr != nil {
+		_, priceErr := helper.ModelPriceHelperForChannel(c, relayInfo, tokens, meta, channel.Type)
+		if priceErr != nil {
+			newAPIError = types.NewError(priceErr, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest), types.ErrOptionWithSkipRetry())
+			break
+		}
+		if billingErr := service.PrepareBillingForSelectedPrice(c, relayInfo); billingErr != nil {
 			newAPIError = billingErr
 			break
 		}

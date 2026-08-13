@@ -208,7 +208,7 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 // reason 用于日志记录（例如 "token重算" 或 "adaptor调整"）。
 // clamps 可选：若计算 actualQuota 时发生额度饱和，将其记入日志 admin_info（仅管理员可见）。
 func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int, reason string, clamps ...*common.QuotaClamp) {
-	if actualQuota <= 0 {
+	if actualQuota < 0 {
 		return
 	}
 	preConsumedQuota := task.Quota
@@ -291,26 +291,23 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 		return
 	}
 
-	// 获取用户和组的倍率信息
-	group := task.Group
-	if group == "" {
-		user, err := model.GetUserById(task.UserId, false)
-		if err == nil {
-			group = user.Group
-		}
-	}
-	if group == "" {
-		return
-	}
-
-	groupRatio := ratio_setting.GetGroupRatio(group)
-	userGroupRatio, hasUserGroupRatio := ratio_setting.GetGroupGroupRatio(group, group)
-
 	var finalGroupRatio float64
-	if hasUserGroupRatio {
-		finalGroupRatio = userGroupRatio
+	if billingContext := task.PrivateData.BillingContext; billingContext != nil {
+		// Freeze the effective submission-time ratio, including VIP overrides
+		// and free (zero) ratios, for the lifetime of the task.
+		finalGroupRatio = billingContext.GroupRatio
 	} else {
-		finalGroupRatio = groupRatio
+		// Legacy tasks have no snapshot. Resolve membership independently from
+		// the target billing group so overrides use (userGroup, task.Group).
+		user, err := model.GetUserById(task.UserId, false)
+		if err != nil || user.Group == "" {
+			return
+		}
+		targetGroup := task.Group
+		if targetGroup == "" {
+			targetGroup = user.Group
+		}
+		finalGroupRatio = GetUserGroupRatio(user.Group, targetGroup)
 	}
 
 	// 计算 OtherRatios 乘积（视频折扣、时长等）

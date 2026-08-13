@@ -5272,6 +5272,8 @@
     "Zero retention": "Без хранения данных",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "OpenCodeGo channel pricing": "Тарифы канала OpenCodeGo",
+    "Official pricing applies only when the request is routed through an OpenCodeGo channel.": "Официальные тарифы применяются только при маршрутизации запроса через канал OpenCodeGo."
   }
 }

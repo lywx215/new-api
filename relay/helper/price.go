@@ -71,14 +71,24 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) hostty
 }
 
 func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) (hosttypes.PriceData, error) {
+	channelType := 0
+	if info != nil && info.ChannelMeta != nil {
+		channelType = info.ChannelType
+	}
+	return ModelPriceHelperForChannel(c, info, promptTokens, meta, channelType)
+}
+
+func ModelPriceHelperForChannel(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta, channelType int) (hosttypes.PriceData, error) {
 	modelPrice, usePrice := ratio_setting.GetModelPrice(info.OriginModelName, false)
 
 	groupRatioInfo := HandleGroupRatio(c, info)
+	billingSource := billing_setting.GetEffectiveBillingSourceForChannel(info.OriginModelName, channelType)
 
 	// Check if this model uses tiered_expr billing
-	if billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModeTieredExpr {
-		return modelPriceHelperTiered(c, info, promptTokens, meta, groupRatioInfo)
+	if billing_setting.GetBillingModeForChannel(info.OriginModelName, channelType) == billing_setting.BillingModeTieredExpr {
+		return modelPriceHelperTiered(c, info, promptTokens, meta, groupRatioInfo, channelType, billingSource)
 	}
+	info.TieredBillingSnapshot = nil
 
 	var preConsumedQuota int
 	var modelRatio float64
@@ -149,6 +159,8 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 	}
 
 	priceData := hosttypes.PriceData{
+		BillingSource:        billingSource,
+		BillingChannelType:   channelType,
 		FreeModel:            freeModel,
 		ModelPrice:           modelPrice,
 		ModelRatio:           modelRatio,
@@ -186,6 +198,11 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 // ModelPriceHelperPerCall 按次/按量计费的 PriceHelper (MJ、Task)
 func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hosttypes.PriceData, error) {
 	groupRatioInfo := HandleGroupRatio(c, info)
+	channelType := 0
+	if info.ChannelMeta != nil {
+		channelType = info.ChannelType
+	}
+	billingSource := billing_setting.GetEffectiveBillingSourceForChannel(info.OriginModelName, channelType)
 
 	modelPrice, success := ratio_setting.GetModelPrice(info.OriginModelName, true)
 	usePrice := success
@@ -242,32 +259,38 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hostt
 	}
 
 	priceData := hosttypes.PriceData{
-		FreeModel:      freeModel,
-		ModelPrice:     modelPrice,
-		ModelRatio:     modelRatio,
-		UsePrice:       usePrice,
-		Quota:          quota,
-		GroupRatioInfo: groupRatioInfo,
+		BillingSource:      billingSource,
+		BillingChannelType: channelType,
+		FreeModel:          freeModel,
+		ModelPrice:         modelPrice,
+		ModelRatio:         modelRatio,
+		UsePrice:           usePrice,
+		Quota:              quota,
+		GroupRatioInfo:     groupRatioInfo,
 	}
 	return priceData, nil
 }
 
 func HasModelBillingConfig(modelName string) bool {
+	return HasModelBillingConfigForChannel(modelName, 0)
+}
+
+func HasModelBillingConfigForChannel(modelName string, channelType int) bool {
 	if _, ok := ratio_setting.GetModelPrice(modelName, false); ok {
 		return true
 	}
 	if _, ok, _ := ratio_setting.GetModelRatio(modelName); ok {
 		return true
 	}
-	if billing_setting.GetBillingMode(modelName) != billing_setting.BillingModeTieredExpr {
+	if billing_setting.GetBillingModeForChannel(modelName, channelType) != billing_setting.BillingModeTieredExpr {
 		return false
 	}
-	expr, ok := billing_setting.GetBillingExpr(modelName)
+	expr, ok := billing_setting.GetBillingExprForChannel(modelName, channelType)
 	return ok && strings.TrimSpace(expr) != ""
 }
 
-func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta, groupRatioInfo hosttypes.GroupRatioInfo) (hosttypes.PriceData, error) {
-	exprStr, ok := billing_setting.GetBillingExpr(info.OriginModelName)
+func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta, groupRatioInfo hosttypes.GroupRatioInfo, channelType int, billingSource string) (hosttypes.PriceData, error) {
+	exprStr, ok := billing_setting.GetBillingExprForChannel(info.OriginModelName, channelType)
 	if !ok {
 		return hosttypes.PriceData{}, fmt.Errorf("model %s is configured as tiered_expr but has no billing expression", info.OriginModelName)
 	}
@@ -309,6 +332,8 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 	exprHash := billingexpr.ExprHashString(exprStr)
 	snapshot := &billingexpr.BillingSnapshot{
 		BillingMode:               billing_setting.BillingModeTieredExpr,
+		BillingSource:             billingSource,
+		ChannelType:               channelType,
 		ModelName:                 info.OriginModelName,
 		ExprString:                exprStr,
 		ExprHash:                  exprHash,
@@ -325,9 +350,11 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 	info.BillingRequestInput = &requestInput
 
 	priceData := hosttypes.PriceData{
-		FreeModel:         freeModel,
-		GroupRatioInfo:    groupRatioInfo,
-		QuotaToPreConsume: preConsumedQuota,
+		BillingSource:      billingSource,
+		BillingChannelType: channelType,
+		FreeModel:          freeModel,
+		GroupRatioInfo:     groupRatioInfo,
+		QuotaToPreConsume:  preConsumedQuota,
 	}
 
 	logger.LogDebug(c, "model_price_helper_tiered result: model=%s preConsume=%d quotaBeforeGroup=%.2f groupRatio=%.2f tier=%s", info.OriginModelName, preConsumedQuota, quotaBeforeGroup, groupRatioInfo.GroupRatio, trace.MatchedTier)

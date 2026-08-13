@@ -76,6 +76,7 @@ import {
 } from '@/components/ui/sheet'
 
 import { safeJsonParse } from '../utils/json-parser'
+import { parseNonNegativeFiniteRatio } from './group-pricing-core'
 
 type GroupRatioVisualEditorProps = {
   groupRatio: string
@@ -1042,11 +1043,11 @@ function GroupOverrideDialog({
   }, [editData, open])
 
   const baseRatio = targetGroup ? baseRatioByName.get(targetGroup) : undefined
+  const parsedRatio = parseNonNegativeFiniteRatio(ratio)
+  const canSave = Boolean(targetGroup) && parsedRatio !== null
 
   const handleSave = () => {
-    if (!targetGroup || !ratio.trim()) return
-    const parsedRatio = Number.parseFloat(ratio)
-    if (Number.isNaN(parsedRatio)) return
+    if (!targetGroup || parsedRatio === null) return
 
     onSave(targetGroup, parsedRatio, editData?.targetGroup)
     setTargetGroup(null)
@@ -1075,7 +1076,7 @@ function GroupOverrideDialog({
           <Button variant='outline' onClick={() => onOpenChange(false)}>
             {t('Cancel')}
           </Button>
-          <Button onClick={handleSave}>
+          <Button onClick={handleSave} disabled={!canSave}>
             {editData ? t('Update') : t('Add')}
           </Button>
         </>
@@ -1098,13 +1099,12 @@ function GroupOverrideDialog({
         <div className='space-y-2'>
           <Label>{t('Ratio')}</Label>
           <Input
+            type='number'
+            min={0}
+            step='any'
+            aria-invalid={ratio.trim() !== '' && parsedRatio === null}
             value={ratio}
-            onChange={(e) => {
-              const val = e.target.value
-              if (val === '' || !Number.isNaN(Number.parseFloat(val))) {
-                setRatio(val)
-              }
-            }}
+            onChange={(e) => setRatio(e.target.value)}
             placeholder={baseRatio === undefined ? '0.9' : String(baseRatio)}
           />
           <p className='text-muted-foreground text-xs'>

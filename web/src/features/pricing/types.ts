@@ -54,6 +54,10 @@ export type PricingModel = {
   billing_mode?: string
   /** Raw expression describing dynamic / tiered billing */
   billing_expr?: string
+  /** Optional scope for provider/channel-specific catalog pricing. */
+  billing_scope?: 'channel_type'
+  /** Channel types for which a scoped billing expression applies. */
+  billing_channel_types?: number[]
   /** Pricing version returned by backend, useful for cache busting */
   pricing_version?: string
   /**

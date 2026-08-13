@@ -214,6 +214,12 @@ func validateOptionValue(key string, value string) error {
 	if key == "MaxTokenAutoGroups" {
 		return setting.ValidateMaxTokenAutoGroups(value)
 	}
+	if key == "GroupRatio" {
+		return ratio_setting.CheckGroupRatio(value)
+	}
+	if key == "GroupGroupRatio" {
+		return ratio_setting.CheckGroupGroupRatio(value)
+	}
 	if key == "billing_setting.billing_mode" {
 		var modes map[string]string
 		if err := common.UnmarshalJsonStr(value, &modes); err != nil {

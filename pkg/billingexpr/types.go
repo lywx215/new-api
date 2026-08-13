@@ -48,6 +48,8 @@ type TraceResult struct {
 // compiled program pointers.
 type BillingSnapshot struct {
 	BillingMode               string  `json:"billing_mode"`
+	BillingSource             string  `json:"billing_source,omitempty"`
+	ChannelType               int     `json:"channel_type,omitempty"`
 	ModelName                 string  `json:"model_name"`
 	ExprString                string  `json:"expr_string"`
 	ExprHash                  string  `json:"expr_hash"`

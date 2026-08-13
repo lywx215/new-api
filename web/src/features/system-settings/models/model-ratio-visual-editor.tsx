@@ -51,7 +51,7 @@ import { combineBillingExpr } from '@/features/pricing/lib/billing-expr'
 import { useMediaQuery } from '@/hooks'
 
 import { safeJsonParse } from '../utils/json-parser'
-import type { PricingMode } from './model-pricing-core'
+import { getBillingModeOverride, type PricingMode } from './model-pricing-core'
 import {
   ModelPricingEditorPanel,
   type ModelPricingEditorPanelHandle,
@@ -527,7 +527,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
         value: string | undefined
       ) => {
         if (!value || value === '') return
-        const parsed = parseFloat(value)
+        const parsed = Number.parseFloat(value)
         if (Number.isFinite(parsed)) target[name] = parsed
       }
 
@@ -564,16 +564,21 @@ const ModelRatioVisualEditorComponent = forwardRef<
           setIfPresent(imageMap, name, data.imageRatio)
           setIfPresent(audioMap, name, data.audioRatio)
           setIfPresent(audioCompletionMap, name, data.audioCompletionRatio)
-        } else if (data.price && data.price !== '') {
-          setIfPresent(priceMap, name, data.price)
         } else {
-          setIfPresent(ratioMap, name, data.ratio)
-          setIfPresent(cacheMap, name, data.cacheRatio)
-          setIfPresent(createCacheMap, name, data.createCacheRatio)
-          setIfPresent(completionMap, name, data.completionRatio)
-          setIfPresent(imageMap, name, data.imageRatio)
-          setIfPresent(audioMap, name, data.audioRatio)
-          setIfPresent(audioCompletionMap, name, data.audioCompletionRatio)
+          billingModeMap[name] = getBillingModeOverride(
+            data.billingMode ?? 'per-token'
+          )
+          if (data.price && data.price !== '') {
+            setIfPresent(priceMap, name, data.price)
+          } else {
+            setIfPresent(ratioMap, name, data.ratio)
+            setIfPresent(cacheMap, name, data.cacheRatio)
+            setIfPresent(createCacheMap, name, data.createCacheRatio)
+            setIfPresent(completionMap, name, data.completionRatio)
+            setIfPresent(imageMap, name, data.imageRatio)
+            setIfPresent(audioMap, name, data.audioRatio)
+            setIfPresent(audioCompletionMap, name, data.audioCompletionRatio)
+          }
         }
       })
 

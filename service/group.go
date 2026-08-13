@@ -121,6 +121,10 @@ func GetGroupsEnabledModels(groups []string) []string {
 	return models
 }
 
+func GetGroupsEnabledModelChannelTypes(groups []string) (map[string][]int, error) {
+	return model.GetGroupsEnabledModelChannelTypes(groups)
+}
+
 // GetUserGroupRatio 获取用户使用某个分组的倍率
 // userGroup 用户分组
 // group 需要获取倍率的分组

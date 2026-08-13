@@ -3,6 +3,7 @@ package billing_setting
 import (
 	"testing"
 
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -91,4 +92,55 @@ func TestOpenCodeGoOperatorModeOverridesOfficialDefault(t *testing.T) {
 	_, ok := GetBillingExpr("hy3")
 	assert.False(t, ok)
 	assert.Equal(t, "operator", GetEffectiveBillingSource("hy3"))
+}
+
+func TestOpenCodeGoOfficialBillingIsChannelScoped(t *testing.T) {
+	oldModes := billingSetting.BillingMode
+	oldExpr := billingSetting.BillingExpr
+	t.Cleanup(func() {
+		billingSetting.BillingMode = oldModes
+		billingSetting.BillingExpr = oldExpr
+		SetOpenCodeGoOfficialDefaultsEnabled(false)
+	})
+	billingSetting.BillingMode = map[string]string{}
+	billingSetting.BillingExpr = map[string]string{}
+	SetOpenCodeGoOfficialDefaultsEnabled(true)
+
+	assert.Equal(t, BillingModeTieredExpr, GetBillingModeForChannel("hy3", constant.ChannelTypeOpenCodeGo))
+	assert.Equal(t, "official", GetEffectiveBillingSourceForChannel("hy3", constant.ChannelTypeOpenCodeGo))
+	_, officialExpr := GetBillingExprForChannel("hy3", constant.ChannelTypeOpenCodeGo)
+	assert.True(t, officialExpr)
+
+	assert.Equal(t, BillingModeRatio, GetBillingModeForChannel("hy3", constant.ChannelTypeOpenAI))
+	assert.Equal(t, "legacy", GetEffectiveBillingSourceForChannel("hy3", constant.ChannelTypeOpenAI))
+	_, nonOfficialExpr := GetBillingExprForChannel("hy3", constant.ChannelTypeOpenAI)
+	assert.False(t, nonOfficialExpr)
+
+	billingSetting.BillingMode["hy3"] = BillingModeRatio
+	assert.Equal(t, "operator", GetEffectiveBillingSourceForChannel("hy3", constant.ChannelTypeOpenCodeGo))
+	assert.Equal(t, "operator", GetEffectiveBillingSourceForChannel("hy3", constant.ChannelTypeOpenAI))
+}
+
+func TestPricingSyncKeepsOfficialDefaultsReadOnlyAndScoped(t *testing.T) {
+	oldModes := billingSetting.BillingMode
+	oldExpr := billingSetting.BillingExpr
+	t.Cleanup(func() {
+		billingSetting.BillingMode = oldModes
+		billingSetting.BillingExpr = oldExpr
+	})
+	billingSetting.BillingMode = map[string]string{"deepseek-v4-flash": BillingModeRatio}
+	billingSetting.BillingExpr = map[string]string{}
+
+	syncData := GetPricingSyncData(map[string]any{})
+	modes, ok := syncData[BillingModeField].(map[string]string)
+	require.True(t, ok)
+	assert.Equal(t, map[string]string{"deepseek-v4-flash": BillingModeRatio}, modes)
+	assert.NotContains(t, modes, "hy3")
+
+	defaults, ok := syncData["official_billing_defaults"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, constant.ChannelTypeOpenCodeGo, defaults["channel_type"])
+	expressions, ok := defaults["expressions"].(map[string]string)
+	require.True(t, ok)
+	assert.Len(t, expressions, 19)
 }

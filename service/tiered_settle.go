@@ -165,6 +165,36 @@ func PrepareTieredBillingForSelectedGroup(c *gin.Context, relayInfo *relaycommon
 	return nil
 }
 
+// PrepareBillingForSelectedPrice reconciles a freshly resolved channel price
+// with the request's existing billing session before an upstream attempt.
+// Reservations only grow; settlement refunds any excess after the final
+// successful channel reports usage.
+func PrepareBillingForSelectedPrice(c *gin.Context, relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
+	if relayInfo == nil {
+		return nil
+	}
+	if relayInfo.Billing != nil {
+		// A billing session proves that quota was reserved on an earlier attempt.
+		// A later free/cheaper channel is settled against that session and refunds
+		// the excess, so FreeModel must not imply that pre-consume was skipped.
+		relayInfo.PriceData.FreeModel = false
+		if relayInfo.PriceData.QuotaToPreConsume <= relayInfo.Billing.GetPreConsumedQuota() {
+			relayInfo.FinalPreConsumedQuota = relayInfo.Billing.GetPreConsumedQuota()
+			return nil
+		}
+		if err := relayInfo.Billing.Reserve(relayInfo.PriceData.QuotaToPreConsume); err != nil {
+			return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
+		}
+		relayInfo.FinalPreConsumedQuota = relayInfo.Billing.GetPreConsumedQuota()
+		return nil
+	}
+	if relayInfo.PriceData.QuotaToPreConsume <= 0 {
+		return nil
+	}
+	relayInfo.PriceData.FreeModel = false
+	return PreConsumeBilling(c, relayInfo.PriceData.QuotaToPreConsume, relayInfo)
+}
+
 // TryTieredSettle checks if the request uses tiered_expr billing and, if so,
 // computes the actual quota using the captured BillingSnapshot. Returns:
 //   - ok=true, quota, result  when tiered billing applies

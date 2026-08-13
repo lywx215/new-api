@@ -3,6 +3,7 @@ package billing_setting
 import (
 	"sync/atomic"
 
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/samber/lo"
 )
 
@@ -45,10 +46,14 @@ func GetOpenCodeGoOfficialBillingExprCopy() map[string]string {
 }
 
 func GetEffectiveBillingSource(model string) string {
+	return GetEffectiveBillingSourceForChannel(model, constant.ChannelTypeOpenCodeGo)
+}
+
+func GetEffectiveBillingSourceForChannel(model string, channelType int) string {
 	if _, ok := billingSetting.BillingMode[model]; ok {
 		return "operator"
 	}
-	if OpenCodeGoOfficialDefaultsEnabled() {
+	if channelType == constant.ChannelTypeOpenCodeGo && OpenCodeGoOfficialDefaultsEnabled() {
 		if _, ok := openCodeGoOfficialBillingExpr[model]; ok {
 			return "official"
 		}

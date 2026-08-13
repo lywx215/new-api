@@ -3,6 +3,7 @@ package billing_setting
 import (
 	"fmt"
 
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/samber/lo"
@@ -36,10 +37,14 @@ func init() {
 // ---------------------------------------------------------------------------
 
 func GetBillingMode(model string) string {
+	return GetBillingModeForChannel(model, constant.ChannelTypeOpenCodeGo)
+}
+
+func GetBillingModeForChannel(model string, channelType int) string {
 	if mode, ok := billingSetting.BillingMode[model]; ok {
 		return mode
 	}
-	if OpenCodeGoOfficialDefaultsEnabled() {
+	if channelType == constant.ChannelTypeOpenCodeGo && OpenCodeGoOfficialDefaultsEnabled() {
 		if _, ok := openCodeGoOfficialBillingExpr[model]; ok {
 			return BillingModeTieredExpr
 		}
@@ -48,6 +53,10 @@ func GetBillingMode(model string) string {
 }
 
 func GetBillingExpr(model string) (string, bool) {
+	return GetBillingExprForChannel(model, constant.ChannelTypeOpenCodeGo)
+}
+
+func GetBillingExprForChannel(model string, channelType int) (string, bool) {
 	if mode, explicit := billingSetting.BillingMode[model]; explicit {
 		if mode != BillingModeTieredExpr {
 			return "", false
@@ -55,7 +64,7 @@ func GetBillingExpr(model string) (string, bool) {
 		expr, ok := billingSetting.BillingExpr[model]
 		return expr, ok
 	}
-	if OpenCodeGoOfficialDefaultsEnabled() {
+	if channelType == constant.ChannelTypeOpenCodeGo && OpenCodeGoOfficialDefaultsEnabled() {
 		expr, ok := openCodeGoOfficialBillingExpr[model]
 		return expr, ok
 	}
@@ -71,18 +80,9 @@ func GetBillingExprCopy() map[string]string {
 }
 
 func GetPricingSyncData(base map[string]any) map[string]any {
-	extra := make(map[string]any, 5)
+	extra := make(map[string]any, 6)
 	modes := GetBillingModeCopy()
 	exprs := GetBillingExprCopy()
-	if OpenCodeGoOfficialDefaultsEnabled() {
-		for model, expr := range openCodeGoOfficialBillingExpr {
-			if _, overridden := modes[model]; overridden {
-				continue
-			}
-			modes[model] = BillingModeTieredExpr
-			exprs[model] = expr
-		}
-	}
 	if len(modes) > 0 {
 		extra[BillingModeField] = modes
 	}
@@ -90,6 +90,10 @@ func GetPricingSyncData(base map[string]any) map[string]any {
 		extra[BillingExprField] = exprs
 	}
 	extra["official_billing_revision"] = OpenCodeGoOfficialBillingRevision
+	extra["official_billing_defaults"] = map[string]any{
+		"channel_type": constant.ChannelTypeOpenCodeGo,
+		"expressions":  GetOpenCodeGoOfficialBillingExprCopy(),
+	}
 	extra["effective_billing_source"] = GetEffectiveBillingSourceCopy()
 	return lo.Assign(base, extra)
 }

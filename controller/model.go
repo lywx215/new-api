@@ -240,6 +240,15 @@ func ListModels(c *gin.Context, modelType int) {
 		}
 	}
 	models := service.GetGroupsEnabledModels(ownerGroups)
+	modelChannelTypes, err := service.GetGroupsEnabledModelChannelTypes(ownerGroups)
+	if err != nil {
+		// A missing/incomplete channel table in degraded or migration states must
+		// not break the model-list API. Falling back to an empty map is safe:
+		// global operator/legacy prices still work, while channel-scoped official
+		// defaults remain unavailable until the channel relation can be proven.
+		common.SysLog("get model channel types failed: " + err.Error())
+		modelChannelTypes = map[string][]int{}
+	}
 	for _, modelName := range models {
 		if modelLimitEnable {
 			matchingName := ratio_setting.FormatMatchingModelName(modelName)
@@ -247,8 +256,19 @@ func ListModels(c *gin.Context, modelType int) {
 				continue
 			}
 		}
-		if !acceptUnsetRatioModel && !helper.HasModelBillingConfig(modelName) {
-			continue
+		if !acceptUnsetRatioModel {
+			hasBillingConfig := helper.HasModelBillingConfig(modelName)
+			if !hasBillingConfig {
+				for _, channelType := range modelChannelTypes[modelName] {
+					if helper.HasModelBillingConfigForChannel(modelName, channelType) {
+						hasBillingConfig = true
+						break
+					}
+				}
+			}
+			if !hasBillingConfig {
+				continue
+			}
 		}
 		userModelNames = append(userModelNames, modelName)
 	}

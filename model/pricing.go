@@ -35,6 +35,8 @@ type Pricing struct {
 	SupportedEndpointTypes []constant.EndpointType `json:"supported_endpoint_types"`
 	BillingMode            string                  `json:"billing_mode,omitempty"`
 	BillingExpr            string                  `json:"billing_expr,omitempty"`
+	BillingScope           string                  `json:"billing_scope,omitempty"`
+	BillingChannelTypes    []int                   `json:"billing_channel_types,omitempty"`
 	PricingVersion         string                  `json:"pricing_version,omitempty"`
 }
 
@@ -259,6 +261,7 @@ func updatePricing() {
 	}
 
 	modelGroupsMap := make(map[string]*types.Set[string])
+	modelChannelTypesMap := make(map[string]*types.Set[int])
 
 	for _, ability := range enableAbilities {
 		groups, ok := modelGroupsMap[ability.Model]
@@ -267,6 +270,12 @@ func updatePricing() {
 			modelGroupsMap[ability.Model] = groups
 		}
 		groups.Add(ability.Group)
+		channelTypes, ok := modelChannelTypesMap[ability.Model]
+		if !ok {
+			channelTypes = types.NewSet[int]()
+			modelChannelTypesMap[ability.Model] = channelTypes
+		}
+		channelTypes.Add(ability.ChannelType)
 	}
 
 	//这里使用切片而不是Set，因为一个模型可能支持多个端点类型，并且第一个端点是优先使用端点
@@ -400,10 +409,19 @@ func updatePricing() {
 			audioCompletionRatio := ratio_setting.GetAudioCompletionRatio(model)
 			pricing.AudioCompletionRatio = &audioCompletionRatio
 		}
-		if billingMode := billing_setting.GetBillingMode(model); billingMode == "tiered_expr" {
-			if expr, ok := billing_setting.GetBillingExpr(model); ok && strings.TrimSpace(expr) != "" {
+		if billingMode := billing_setting.GetBillingModeForChannel(model, 0); billingMode == billing_setting.BillingModeTieredExpr {
+			if expr, ok := billing_setting.GetBillingExprForChannel(model, 0); ok && strings.TrimSpace(expr) != "" {
 				pricing.BillingMode = billingMode
 				pricing.BillingExpr = expr
+			}
+		} else if channelTypes := modelChannelTypesMap[model]; channelTypes != nil && channelTypes.Contains(constant.ChannelTypeOpenCodeGo) {
+			if billingMode := billing_setting.GetBillingModeForChannel(model, constant.ChannelTypeOpenCodeGo); billingMode == billing_setting.BillingModeTieredExpr {
+				if expr, ok := billing_setting.GetBillingExprForChannel(model, constant.ChannelTypeOpenCodeGo); ok && strings.TrimSpace(expr) != "" {
+					pricing.BillingMode = billingMode
+					pricing.BillingExpr = expr
+					pricing.BillingScope = "channel_type"
+					pricing.BillingChannelTypes = []int{constant.ChannelTypeOpenCodeGo}
+				}
 			}
 		}
 		pricingMap = append(pricingMap, pricing)

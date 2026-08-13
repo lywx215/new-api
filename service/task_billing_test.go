@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/glebarez/sqlite"
 	"github.com/shopspring/decimal"
@@ -525,9 +526,87 @@ func TestRecalculate_ActualQuotaZero(t *testing.T) {
 
 	RecalculateTaskQuota(ctx, task, 0, "zero actual")
 
-	// No change (early return)
-	assert.Equal(t, initQuota, getUserQuota(t, userID))
-	assert.Equal(t, int64(0), countLogs(t))
+	// A zero actual charge is a valid free result and refunds the full reserve.
+	assert.Equal(t, initQuota+5000, getUserQuota(t, userID))
+	assert.Equal(t, int64(1), countLogs(t))
+}
+
+func TestRecalculateTaskQuotaByTokensUsesSubmissionGroupRatioSnapshot(t *testing.T) {
+	truncate(t)
+	originalModelRatios := ratio_setting.ModelRatio2JSONString()
+	originalGroupRatios := ratio_setting.GroupRatio2JSONString()
+	originalSpecialRatios := ratio_setting.GroupGroupRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(originalModelRatios))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalGroupRatios))
+		require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(originalSpecialRatios))
+	})
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"test-model":2}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":5}`))
+	require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(`{"vip":{"default":0.8}}`))
+
+	const userID = 1301
+	seedUser(t, userID, 10_000)
+	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", userID).Update("group", "vip").Error)
+	task := makeTask(userID, 0, 1_000, 0, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext.GroupRatio = 0.25
+	require.NoError(t, model.DB.Create(task).Error)
+
+	RecalculateTaskQuotaByTokens(context.Background(), task, 1_000)
+
+	assert.Equal(t, 10_500, getUserQuota(t, userID))
+	assert.Equal(t, 500, task.Quota)
+}
+
+func TestRecalculateTaskQuotaByTokensLegacyTaskUsesRealUserGroupOverride(t *testing.T) {
+	truncate(t)
+	originalModelRatios := ratio_setting.ModelRatio2JSONString()
+	originalGroupRatios := ratio_setting.GroupRatio2JSONString()
+	originalSpecialRatios := ratio_setting.GroupGroupRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(originalModelRatios))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalGroupRatios))
+		require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(originalSpecialRatios))
+	})
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"test-model":2}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":5,"vip":3}`))
+	require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(`{"vip":{"default":0.8}}`))
+
+	const userID = 1302
+	seedUser(t, userID, 10_000)
+	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", userID).Update("group", "vip").Error)
+	task := makeTask(userID, 0, 1_000, 0, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext = nil
+	task.Group = "default"
+	require.NoError(t, model.DB.Create(task).Error)
+
+	RecalculateTaskQuotaByTokens(context.Background(), task, 1_000)
+
+	// 1000 tokens * model ratio 2 * vip->default override 0.8 = 1600.
+	assert.Equal(t, 9_400, getUserQuota(t, userID))
+	assert.Equal(t, 1_600, task.Quota)
+}
+
+func TestRecalculateTaskQuotaByTokensSnapshotSupportsSubscriptionAndFreeRatio(t *testing.T) {
+	truncate(t)
+	originalModelRatios := ratio_setting.ModelRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(originalModelRatios))
+	})
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"test-model":2}`))
+
+	const userID, subscriptionID = 1303, 1303
+	seedUser(t, userID, 10_000)
+	seedSubscription(t, subscriptionID, userID, 100_000, 1_000)
+	task := makeTask(userID, 0, 1_000, 0, BillingSourceSubscription, subscriptionID)
+	task.PrivateData.BillingContext.GroupRatio = 0
+	require.NoError(t, model.DB.Create(task).Error)
+
+	RecalculateTaskQuotaByTokens(context.Background(), task, 1_000)
+
+	assert.Equal(t, int64(0), getSubscriptionUsed(t, subscriptionID))
+	assert.Equal(t, 10_000, getUserQuota(t, userID))
+	assert.Equal(t, 0, task.Quota)
 }
 
 func TestRecalculate_Subscription_NegativeDelta(t *testing.T) {

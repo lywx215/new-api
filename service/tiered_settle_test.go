@@ -365,6 +365,31 @@ func TestPrepareTieredBillingForSelectedGroupUpdatesReservation(t *testing.T) {
 	assert.Equal(t, 100_000, relayInfo.TieredBillingSnapshot.EstimatedQuotaAfterGroup)
 }
 
+func TestPrepareBillingForSelectedPriceOnlyRaisesReservation(t *testing.T) {
+	billing := &recordingBillingSettler{preConsumedQuota: 1_000}
+	relayInfo := &relaycommon.RelayInfo{
+		Billing: billing,
+		PriceData: types.PriceData{
+			QuotaToPreConsume: 500,
+		},
+	}
+
+	require.Nil(t, PrepareBillingForSelectedPrice(nil, relayInfo))
+	assert.Empty(t, billing.reserveTargets)
+	assert.Equal(t, 1_000, relayInfo.FinalPreConsumedQuota)
+
+	relayInfo.PriceData.FreeModel = true
+	relayInfo.PriceData.QuotaToPreConsume = 0
+	require.Nil(t, PrepareBillingForSelectedPrice(nil, relayInfo))
+	assert.False(t, relayInfo.PriceData.FreeModel)
+	assert.Empty(t, billing.reserveTargets)
+
+	relayInfo.PriceData.QuotaToPreConsume = 1_500
+	require.Nil(t, PrepareBillingForSelectedPrice(nil, relayInfo))
+	assert.Equal(t, []int{1_500}, billing.reserveTargets)
+	assert.Equal(t, 1_500, relayInfo.FinalPreConsumedQuota)
+}
+
 func TestPrepareTieredBillingForSelectedGroupStartsBillingAfterFreeGroup(t *testing.T) {
 	truncate(t)
 	gin.SetMode(gin.TestMode)
