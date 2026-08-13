@@ -19,7 +19,7 @@ func migrateOpenCodeGoChannelType(db *gorm.DB, enabled bool, requireResolution b
 	var migrated int64
 	err := db.Transaction(func(tx *gorm.DB) error {
 		var marker Option
-		err := lockForUpdate(tx).Where("key = ?", openCodeGoChannelTypeMigrationKey).First(&marker).Error
+		err := optionByKeyForUpdate(tx, openCodeGoChannelTypeMigrationKey).First(&marker).Error
 		if err == nil && marker.Value == openCodeGoChannelTypeMigrationComplete {
 			return nil
 		}
