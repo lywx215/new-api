@@ -249,6 +249,7 @@ export const channelFormSchema = z
       .optional()
       .refine(isOptionalJsonObject, ERROR_MESSAGES.INVALID_JSON),
     disable_opencodego_auto_cache: z.boolean().optional(),
+    opencodego_rpm_limit: z.number().int().min(0).max(1599).optional(),
     other: z.string().optional(),
     // Multi-key options (not sent to backend directly)
     multi_key_mode: z.enum(['single', 'batch', 'multi_to_single']).optional(),
@@ -459,6 +460,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   advanced_custom: '',
   model_protocols: '',
   disable_opencodego_auto_cache: false,
+  opencodego_rpm_limit: 0,
 }
 
 // ============================================================================
@@ -525,6 +527,7 @@ export function transformChannelToFormDefaults(
   let advancedCustom = ''
   let modelProtocols = ''
   let disableOpenCodeGoAutoCache = false
+  let openCodeGoRpmLimit = 0
 
   if (channel.settings) {
     try {
@@ -557,6 +560,7 @@ export function transformChannelToFormDefaults(
         modelProtocols = JSON.stringify(parsed.model_protocols, null, 2)
       }
       disableOpenCodeGoAutoCache = parsed.disable_opencodego_auto_cache === true
+      openCodeGoRpmLimit = Number(parsed.opencodego_rpm_limit) || 0
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('Failed to parse channel settings:', error)
@@ -610,6 +614,7 @@ export function transformChannelToFormDefaults(
     advanced_custom: advancedCustom,
     model_protocols: modelProtocols,
     disable_opencodego_auto_cache: disableOpenCodeGoAutoCache,
+    opencodego_rpm_limit: openCodeGoRpmLimit,
   }
 }
 
@@ -783,8 +788,13 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
   if (formData.type === CHANNEL_TYPE_OPENCODE_GO) {
     settingsObj.disable_opencodego_auto_cache =
       formData.disable_opencodego_auto_cache === true
-  } else if ('disable_opencodego_auto_cache' in settingsObj) {
+    settingsObj.opencodego_rpm_limit = Math.max(
+      0,
+      Math.trunc(formData.opencodego_rpm_limit || 0)
+    )
+  } else {
     delete settingsObj.disable_opencodego_auto_cache
+    delete settingsObj.opencodego_rpm_limit
   }
 
   return JSON.stringify(settingsObj)

@@ -35,6 +35,13 @@ func TestChannelOtherSettingsValidateModelProtocols(t *testing.T) {
 	}
 }
 
+func TestChannelOtherSettingsValidatesOpenCodeGoRPMLimit(t *testing.T) {
+	assert.NoError(t, (&ChannelOtherSettings{OpenCodeGoRPMLimit: 0}).ValidateModelProtocols())
+	assert.NoError(t, (&ChannelOtherSettings{OpenCodeGoRPMLimit: 1599}).ValidateModelProtocols())
+	assert.Error(t, (&ChannelOtherSettings{OpenCodeGoRPMLimit: -1}).ValidateModelProtocols())
+	assert.Error(t, (&ChannelOtherSettings{OpenCodeGoRPMLimit: 1600}).ValidateModelProtocols())
+}
+
 func TestAdvancedCustomValidateResponsesToChatConverterPath(t *testing.T) {
 	valid := &AdvancedCustomConfig{
 		Routes: []AdvancedCustomRoute{

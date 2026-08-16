@@ -45,6 +45,29 @@ export interface CacheStats {
   by_rule_name: Record<string, number>
   cache_capacity: number
   cache_algo: string
+  internal_affinity?: {
+    scope: 'node'
+    node_name: string
+    reset_on_restart: boolean
+    generated: number
+    generated_by_source: Record<string, number>
+    signature_invalid: number
+    affinity_lookups: number
+    affinity_hits: number
+    rpm_migrations: number
+    upstream_429: number
+    fallback_not_generated: number
+  }
+  opencodego_rpm?: {
+    channel_id: number
+    channel_name: string
+    rpm_limit: number
+    requests_current_minute: number
+    remaining_tokens: number
+    cooldown_seconds: number
+  }[]
+  opencodego_rpm_total?: number
+  opencodego_rpm_truncated?: boolean
 }
 
 export interface ChannelAffinitySettings {
@@ -54,4 +77,16 @@ export interface ChannelAffinitySettings {
   'channel_affinity_setting.max_entries': number
   'channel_affinity_setting.default_ttl_seconds': number
   'channel_affinity_setting.rules': string
+  'channel_affinity_setting.accept_internal_key': boolean
+  'channel_affinity_setting.generate_internal_key': boolean
+  'channel_affinity_setting.use_prompt_cache_key': boolean
+  'channel_affinity_setting.use_opencode_session': boolean
+  'channel_affinity_setting.use_metadata_user_id': boolean
+  'channel_affinity_setting.generate_fallback_key': boolean
+  'channel_affinity_setting.max_source_bytes': number
+  'channel_affinity_setting.affinity_ttl_seconds': number
+  'channel_affinity_setting.rpm_guard_enabled': boolean
+  'channel_affinity_setting.default_account_rpm': number
+  'channel_affinity_setting.account_burst': number
+  'channel_affinity_setting.rate_limit_cooldown_seconds': number
 }

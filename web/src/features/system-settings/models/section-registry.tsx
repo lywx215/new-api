@@ -163,6 +163,30 @@ const MODELS_SECTIONS = [
             settings['channel_affinity_setting.default_ttl_seconds'],
           'channel_affinity_setting.rules':
             settings['channel_affinity_setting.rules'],
+          'channel_affinity_setting.accept_internal_key':
+            settings['channel_affinity_setting.accept_internal_key'],
+          'channel_affinity_setting.generate_internal_key':
+            settings['channel_affinity_setting.generate_internal_key'],
+          'channel_affinity_setting.use_prompt_cache_key':
+            settings['channel_affinity_setting.use_prompt_cache_key'],
+          'channel_affinity_setting.use_opencode_session':
+            settings['channel_affinity_setting.use_opencode_session'],
+          'channel_affinity_setting.use_metadata_user_id':
+            settings['channel_affinity_setting.use_metadata_user_id'],
+          'channel_affinity_setting.generate_fallback_key':
+            settings['channel_affinity_setting.generate_fallback_key'],
+          'channel_affinity_setting.max_source_bytes':
+            settings['channel_affinity_setting.max_source_bytes'],
+          'channel_affinity_setting.affinity_ttl_seconds':
+            settings['channel_affinity_setting.affinity_ttl_seconds'],
+          'channel_affinity_setting.rpm_guard_enabled':
+            settings['channel_affinity_setting.rpm_guard_enabled'],
+          'channel_affinity_setting.default_account_rpm':
+            settings['channel_affinity_setting.default_account_rpm'],
+          'channel_affinity_setting.account_burst':
+            settings['channel_affinity_setting.account_burst'],
+          'channel_affinity_setting.rate_limit_cooldown_seconds':
+            settings['channel_affinity_setting.rate_limit_cooldown_seconds'],
         }}
       />
     ),

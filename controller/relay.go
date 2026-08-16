@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -93,6 +94,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if newAPIError != nil {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
+			applyRelayErrorHeaders(c, newAPIError)
 			switch relayFormat {
 			case types.RelayFormatOpenAIRealtime:
 				helper.WssError(c, ws, newAPIError.ToOpenAIError())
@@ -318,6 +320,11 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	}
 	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
 	if err != nil {
+		if rpmErr, ok := service.AsOpenCodeGoRPMError(err); ok {
+			newAPIError := types.NewErrorWithStatusCode(rpmErr, types.ErrorCodeOpenCodeGoRPMLimit, http.StatusTooManyRequests, types.ErrOptionWithSkipRetry())
+			newAPIError.SetRetryAfterHeader(strconv.Itoa(rpmErr.RetryAfter))
+			return nil, newAPIError
+		}
 		return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 	if channel == nil {
@@ -329,6 +336,9 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	newAPIError := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)
 	if newAPIError != nil {
 		return nil, newAPIError
+	}
+	if retryParam.GetRetry() > 0 {
+		service.MarkChannelAffinityFinalChannel(c, channel.Id)
 	}
 	return channel, nil
 }
@@ -369,7 +379,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.Error())))
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
-	if service.ShouldDisableChannel(err) && channelError.AutoBan {
+	if shouldAutoDisableChannelAfterRelayError(channelError, err) {
 		gopool.Go(func() {
 			service.DisableChannel(channelError, err.ErrorWithStatusCode())
 		})
@@ -410,6 +420,28 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
 	}
 
+}
+
+func shouldAutoDisableChannelAfterRelayError(channelError types.ChannelError, err *types.NewAPIError) bool {
+	if err == nil || !channelError.AutoBan {
+		return false
+	}
+	if channelError.ChannelType == constant.ChannelTypeOpenCodeGo && err.StatusCode == http.StatusTooManyRequests {
+		return false
+	}
+	if err.GetErrorCode() == types.ErrorCodeOpenCodeGoRPMLimit {
+		return false
+	}
+	return service.ShouldDisableChannel(err)
+}
+
+func applyRelayErrorHeaders(c *gin.Context, err *types.NewAPIError) {
+	if c == nil || err == nil || err.StatusCode != http.StatusTooManyRequests {
+		return
+	}
+	if retryAfter := err.GetRetryAfterHeader(); retryAfter != "" {
+		c.Header("Retry-After", retryAfter)
+	}
 }
 
 func RelayMidjourney(c *gin.Context) {

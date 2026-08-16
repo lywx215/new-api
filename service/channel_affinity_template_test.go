@@ -8,9 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -261,6 +263,138 @@ func TestClearCurrentChannelAffinityCache(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, found)
 	require.False(t, ShouldSkipRetryAfterChannelAffinityFailure(ctx))
+}
+
+func TestInvalidInternalAffinityHeaderFallsBackToExistingRule(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rule := operation_setting.ChannelAffinityRule{
+		Name:              fmt.Sprintf("invalid-internal-fallback-%d", time.Now().UnixNano()),
+		ModelRegex:        []string{`^gpt-test$`},
+		PathRegex:         []string{`^/v1/responses$`},
+		KeySources:        []operation_setting.ChannelAffinityKeySource{{Type: "request_header", Key: "X-Legacy-Affinity"}},
+		TTLSeconds:        60,
+		IncludeRuleName:   true,
+		IncludeUsingGroup: true,
+		IncludeModelName:  true,
+	}
+	affinityValue := fmt.Sprintf("legacy-%d", time.Now().UnixNano())
+	cacheKeySuffix := buildChannelAffinityCacheKeySuffix(rule, "gpt-test", "default", affinityValue)
+	cache := getChannelAffinityCache()
+	require.NoError(t, cache.SetWithTTL(cacheKeySuffix, 9701, time.Minute))
+	t.Cleanup(func() { _, _ = cache.DeleteMany([]string{cacheKeySuffix}) })
+
+	setting := operation_setting.GetChannelAffinitySetting()
+	original := *setting
+	setting.Enabled = true
+	setting.AcceptInternalKey = true
+	setting.Rules = append([]operation_setting.ChannelAffinityRule{rule}, original.Rules...)
+	t.Cleanup(func() { *setting = original })
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	ctx.Request.Header.Set("X-NewAPI-Affinity-Key", "v1.invalid.invalid")
+	ctx.Request.Header.Set("X-Legacy-Affinity", affinityValue)
+
+	channelID, found := GetPreferredChannelByAffinity(ctx, "gpt-test", "default")
+	require.True(t, found)
+	assert.Equal(t, 9701, channelID)
+	meta, ok := getChannelAffinityMeta(ctx)
+	require.True(t, ok)
+	assert.Equal(t, rule.Name, meta.RuleName)
+}
+
+func TestRecordChannelAffinityOnlyMovesMappingAfterSuccessfulFallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cacheKeySuffix := fmt.Sprintf("trusted_internal:default:gpt-test:migration-%d", time.Now().UnixNano())
+	cacheKeyFull := channelAffinityCacheNamespace + ":" + cacheKeySuffix
+	cache := getChannelAffinityCache()
+	require.NoError(t, cache.SetWithTTL(cacheKeySuffix, 9801, time.Minute))
+	t.Cleanup(func() { _, _ = cache.DeleteMany([]string{cacheKeySuffix}) })
+
+	setting := operation_setting.GetChannelAffinitySetting()
+	original := *setting
+	setting.Enabled = true
+	setting.AcceptInternalKey = true
+	setting.SwitchOnSuccess = false
+	t.Cleanup(func() { *setting = original })
+
+	migrationContext := buildChannelAffinityTemplateContextForTest(channelAffinityMeta{
+		CacheKey:   cacheKeyFull,
+		TTLSeconds: 60,
+		RuleName:   "trusted_internal",
+	})
+	MarkChannelAffinityMigration(migrationContext, 9801, 0, "rpm_soft_limit", 0)
+	channelID, found, err := cache.Get(cacheKeySuffix)
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, 9801, channelID)
+
+	successfulFallbackContext := buildChannelAffinityTemplateContextForTest(channelAffinityMeta{
+		CacheKey:   cacheKeyFull,
+		TTLSeconds: 60,
+		RuleName:   "trusted_internal",
+	})
+	RecordChannelAffinity(successfulFallbackContext, 9802)
+
+	channelID, found, err = cache.Get(cacheKeySuffix)
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, 9802, channelID)
+}
+
+func TestMarkChannelAffinityFinalChannelUpdatesTelemetryWithoutMovingMapping(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx := buildChannelAffinityTemplateContextForTest(channelAffinityMeta{})
+	MarkChannelAffinityUsed(ctx, "default", 9801)
+
+	MarkChannelAffinityFinalChannel(ctx, 9802)
+
+	adminInfo := map[string]interface{}{}
+	AppendChannelAffinityAdminInfo(ctx, adminInfo)
+	affinity, ok := adminInfo["channel_affinity"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, 9801, affinity["original_channel_id"])
+	assert.Equal(t, 9802, affinity["final_channel_id"])
+}
+
+func TestTrustedInternalAffinityWorksWhenCustomRulesDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	setting := operation_setting.GetChannelAffinitySetting()
+	original := *setting
+	setting.Enabled = false
+	setting.AcceptInternalKey = true
+	setting.AffinityTTLSeconds = 60
+	t.Cleanup(func() { *setting = original })
+	header := common.SignInternalAffinitySource(fmt.Sprintf("trusted-disabled-%d", time.Now().UnixNano()))
+
+	first := buildChannelAffinityTemplateContextForTest(channelAffinityMeta{})
+	first.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	first.Request.Header.Set(common.InternalAffinityHeader, header)
+	_, found := GetPreferredChannelByAffinity(first, "gpt-test", "default")
+	require.False(t, found)
+	RecordChannelAffinity(first, 9810)
+
+	second := buildChannelAffinityTemplateContextForTest(channelAffinityMeta{})
+	second.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	second.Request.Header.Set(common.InternalAffinityHeader, header)
+	channelID, found := GetPreferredChannelByAffinity(second, "gpt-test", "default")
+	require.True(t, found)
+	assert.Equal(t, 9810, channelID)
+}
+
+func TestTrustedInternalAffinityStatsAndRuleClear(t *testing.T) {
+	cache := getChannelAffinityCache()
+	suffix := fmt.Sprintf("trusted_internal:default:gpt-test:stats-%d", time.Now().UnixNano())
+	require.NoError(t, cache.SetWithTTL(suffix, 9820, time.Minute))
+	t.Cleanup(func() { _, _ = cache.DeleteMany([]string{suffix}) })
+
+	stats := GetChannelAffinityCacheStats()
+	assert.GreaterOrEqual(t, stats.ByRuleName["trusted_internal"], 1)
+	deleted, err := ClearChannelAffinityCacheByRuleName("trusted_internal")
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, deleted, 1)
 }
 
 func TestChannelAffinityHitCodexTemplatePassHeadersEffective(t *testing.T) {

@@ -34,7 +34,7 @@ SELECT value FROM options WHERE key = 'Migration.OpenCodeGoChannelType99';
 
 要求旧渠道 `type=59` 数量为 0，`type=99` 数量与迁移前的 59 数量一致，迁移标记为 `complete`。渠道 ID、Key、模型、设置、额度和 abilities 不应变化。
 
-验收完成后可滚动升级最终版本 `v1.0.0-rc.24-opencodego.1`。最终版本中 59 只表示 Sub2API；滚动期间不要创建 Sub2API，全部实例稳定后再恢复渠道管理。
+验收完成后可滚动升级最终版本；当前建议使用 `v1.0.0-rc.24-opencodego.2`。最终版本中 59 只表示 Sub2API；滚动期间不要创建 Sub2API，全部实例稳定后再恢复渠道管理。
 
 ## 回滚边界
 

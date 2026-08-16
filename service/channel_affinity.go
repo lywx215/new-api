@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -37,7 +38,8 @@ var (
 	channelAffinityUsageCacheStatsOnce  sync.Once
 	channelAffinityUsageCacheStatsCache *cachex.HybridCache[ChannelAffinityUsageCacheCounters]
 
-	channelAffinityRegexCache sync.Map // map[string]*regexp.Regexp
+	channelAffinityRegexCache          sync.Map // map[string]*regexp.Regexp
+	lastInvalidInternalAffinityWarning atomic.Int64
 )
 
 type channelAffinityMeta struct {
@@ -70,12 +72,16 @@ const (
 )
 
 type ChannelAffinityCacheStats struct {
-	Enabled       bool           `json:"enabled"`
-	Total         int            `json:"total"`
-	Unknown       int            `json:"unknown"`
-	ByRuleName    map[string]int `json:"by_rule_name"`
-	CacheCapacity int            `json:"cache_capacity"`
-	CacheAlgo     string         `json:"cache_algo"`
+	Enabled                bool                           `json:"enabled"`
+	Total                  int                            `json:"total"`
+	Unknown                int                            `json:"unknown"`
+	ByRuleName             map[string]int                 `json:"by_rule_name"`
+	CacheCapacity          int                            `json:"cache_capacity"`
+	CacheAlgo              string                         `json:"cache_algo"`
+	InternalAffinity       common.InternalAffinityMetrics `json:"internal_affinity"`
+	OpenCodeGoRPM          []OpenCodeGoRPMStatus          `json:"opencodego_rpm"`
+	OpenCodeGoRPMTotal     int                            `json:"opencodego_rpm_total"`
+	OpenCodeGoRPMTruncated bool                           `json:"opencodego_rpm_truncated"`
 }
 
 func getChannelAffinityCache() *cachex.HybridCache[int] {
@@ -140,6 +146,7 @@ func GetChannelAffinityCacheStats() ChannelAffinityCacheStats {
 	for name := range ruleByName {
 		byRuleName[name] = 0
 	}
+	byRuleName["trusted_internal"] = 0
 
 	keys, err := cache.Keys()
 	if err != nil {
@@ -161,6 +168,14 @@ func GetChannelAffinityCacheStats() ChannelAffinityCacheStats {
 			continue
 		}
 		ruleName := parts[0]
+		if ruleName == "trusted_internal" {
+			if len(parts) < 4 {
+				unknown++
+				continue
+			}
+			byRuleName[ruleName]++
+			continue
+		}
 		rule, ok := ruleByName[ruleName]
 		if !ok {
 			unknown++
@@ -185,13 +200,18 @@ func GetChannelAffinityCacheStats() ChannelAffinityCacheStats {
 		byRuleName[ruleName]++
 	}
 
+	rpmStatus := GetOpenCodeGoRPMStatuses()
 	return ChannelAffinityCacheStats{
-		Enabled:       setting.Enabled,
-		Total:         total,
-		Unknown:       unknown,
-		ByRuleName:    byRuleName,
-		CacheCapacity: mainCap,
-		CacheAlgo:     mainAlgo,
+		Enabled:                setting.Enabled,
+		Total:                  total,
+		Unknown:                unknown,
+		ByRuleName:             byRuleName,
+		CacheCapacity:          mainCap,
+		CacheAlgo:              mainAlgo,
+		InternalAffinity:       common.GetInternalAffinityMetrics(),
+		OpenCodeGoRPM:          rpmStatus.Statuses,
+		OpenCodeGoRPMTotal:     rpmStatus.Total,
+		OpenCodeGoRPMTruncated: rpmStatus.Truncated,
 	}
 }
 
@@ -221,6 +241,9 @@ func ClearChannelAffinityCacheByRuleName(ruleName string) (int, error) {
 		return 0, fmt.Errorf("channel_affinity_setting 未初始化")
 	}
 
+	if ruleName == "trusted_internal" {
+		return getChannelAffinityCache().DeleteByPrefix(ruleName)
+	}
 	var matchedRule *operation_setting.ChannelAffinityRule
 	for i := range setting.Rules {
 		r := &setting.Rules[i]
@@ -549,7 +572,7 @@ func ApplyChannelAffinityOverrideTemplate(c *gin.Context, paramOverride map[stri
 
 func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup string) (int, bool) {
 	setting := operation_setting.GetChannelAffinitySetting()
-	if setting == nil || !setting.Enabled {
+	if setting == nil {
 		return 0, false
 	}
 	path := ""
@@ -559,6 +582,57 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 	userAgent := ""
 	if c != nil && c.Request != nil {
 		userAgent = c.Request.UserAgent()
+	}
+	if setting.AcceptInternalKey && c != nil && c.Request != nil {
+		headerValue := strings.TrimSpace(c.Request.Header.Get(common.InternalAffinityHeader))
+		if headerValue != "" {
+			payload, valid := common.VerifyInternalAffinityHeader(headerValue)
+			if valid {
+				ttlSeconds := setting.AffinityTTLSeconds
+				if ttlSeconds <= 0 {
+					ttlSeconds = 3600
+				}
+				cacheKeySuffix := strings.Join([]string{"trusted_internal", usingGroup, modelName, payload}, ":")
+				cacheKeyFull := channelAffinityCacheNamespace + ":" + cacheKeySuffix
+				setChannelAffinityContext(c, channelAffinityMeta{
+					CacheKey:       cacheKeyFull,
+					TTLSeconds:     ttlSeconds,
+					RuleName:       "trusted_internal",
+					KeySourceType:  "internal_header",
+					KeyFingerprint: affinityFingerprint(payload),
+					UsingGroup:     usingGroup,
+					ModelName:      modelName,
+					RequestPath:    path,
+				})
+				c.Set(ginKeyChannelAffinityLogInfo, map[string]interface{}{
+					"source_type":     "internal_header",
+					"key_fp":          affinityFingerprint(payload),
+					"generated":       true,
+					"signature_valid": true,
+				})
+				channelID, found, err := getChannelAffinityCache().Get(cacheKeySuffix)
+				if err != nil {
+					common.SysError(fmt.Sprintf("trusted internal affinity cache get failed: key_fp=%s, err=%v", affinityFingerprint(payload), err))
+					return 0, false
+				}
+				common.ObserveInternalAffinityLookup(found)
+				return channelID, found
+			}
+			common.ObserveInternalAffinitySignatureInvalid()
+			now := time.Now().Unix()
+			lastWarning := lastInvalidInternalAffinityWarning.Load()
+			if now-lastWarning >= 60 && lastInvalidInternalAffinityWarning.CompareAndSwap(lastWarning, now) {
+				common.SysError("ignored invalid trusted internal affinity header")
+			}
+			c.Set(ginKeyChannelAffinityLogInfo, map[string]interface{}{
+				"source_type":     "internal_header",
+				"generated":       false,
+				"signature_valid": false,
+			})
+		}
+	}
+	if !setting.Enabled {
+		return 0, false
 	}
 
 	for _, rule := range setting.Rules {
@@ -683,18 +757,27 @@ func MarkChannelAffinityUsed(c *gin.Context, selectedGroup string, channelID int
 	}
 	c.Set(ginKeyChannelAffinitySkipRetry, meta.SkipRetry)
 	info := map[string]interface{}{
-		"reason":         meta.RuleName,
-		"rule_name":      meta.RuleName,
-		"using_group":    meta.UsingGroup,
-		"selected_group": selectedGroup,
-		"model":          meta.ModelName,
-		"request_path":   meta.RequestPath,
-		"channel_id":     channelID,
-		"key_source":     meta.KeySourceType,
-		"key_key":        meta.KeySourceKey,
-		"key_path":       meta.KeySourcePath,
-		"key_hint":       meta.KeyHint,
-		"key_fp":         meta.KeyFingerprint,
+		"reason":              meta.RuleName,
+		"rule_name":           meta.RuleName,
+		"using_group":         meta.UsingGroup,
+		"selected_group":      selectedGroup,
+		"model":               meta.ModelName,
+		"request_path":        meta.RequestPath,
+		"channel_id":          channelID,
+		"key_source":          meta.KeySourceType,
+		"key_key":             meta.KeySourceKey,
+		"key_path":            meta.KeySourcePath,
+		"key_hint":            meta.KeyHint,
+		"key_fp":              meta.KeyFingerprint,
+		"original_channel_id": channelID,
+		"final_channel_id":    channelID,
+	}
+	if existing, ok := c.Get(ginKeyChannelAffinityLogInfo); ok {
+		if existingMap, ok := existing.(map[string]interface{}); ok {
+			for key, value := range existingMap {
+				info[key] = value
+			}
+		}
 	}
 	c.Set(ginKeyChannelAffinityLogInfo, info)
 }
@@ -710,17 +793,70 @@ func AppendChannelAffinityAdminInfo(c *gin.Context, adminInfo map[string]interfa
 	adminInfo["channel_affinity"] = anyInfo
 }
 
+func MarkChannelAffinityMigration(c *gin.Context, originalChannelID, finalChannelID int, reason string, rpmRemaining int) {
+	if c == nil {
+		return
+	}
+	info := map[string]interface{}{}
+	if existing, ok := c.Get(ginKeyChannelAffinityLogInfo); ok {
+		if existingMap, ok := existing.(map[string]interface{}); ok {
+			for key, value := range existingMap {
+				info[key] = value
+			}
+		}
+	}
+	info["original_channel_id"] = originalChannelID
+	info["final_channel_id"] = finalChannelID
+	info["migration_reason"] = reason
+	info["rpm_remaining"] = rpmRemaining
+	c.Set(ginKeyChannelAffinityLogInfo, info)
+	if reason == "rpm_soft_limit" {
+		common.ObserveInternalAffinityRPMMigration()
+	}
+}
+
+// MarkChannelAffinityFinalChannel updates request telemetry before the successful
+// retry handler writes its consume log. The affinity mapping itself is still
+// moved only by RecordChannelAffinity after the request succeeds.
+func MarkChannelAffinityFinalChannel(c *gin.Context, channelID int) {
+	if c == nil || channelID <= 0 {
+		return
+	}
+	existing, ok := c.Get(ginKeyChannelAffinityLogInfo)
+	if !ok {
+		return
+	}
+	info, ok := existing.(map[string]interface{})
+	if !ok {
+		return
+	}
+	info["final_channel_id"] = channelID
+	c.Set(ginKeyChannelAffinityLogInfo, info)
+}
+
 func RecordChannelAffinity(c *gin.Context, channelID int) {
 	if channelID <= 0 {
 		return
 	}
 	setting := operation_setting.GetChannelAffinitySetting()
-	if setting == nil || !setting.Enabled {
+	if setting == nil {
+		return
+	}
+	meta, hasMeta := getChannelAffinityMeta(c)
+	if !hasMeta || (meta.RuleName == "trusted_internal" && !setting.AcceptInternalKey) || (meta.RuleName != "trusted_internal" && !setting.Enabled) {
 		return
 	}
 	if setting.SwitchOnSuccess && c != nil {
 		if successChannelID := c.GetInt("channel_id"); successChannelID > 0 {
 			channelID = successChannelID
+		}
+	}
+	if c != nil {
+		if existing, ok := c.Get(ginKeyChannelAffinityLogInfo); ok {
+			if info, ok := existing.(map[string]interface{}); ok {
+				info["final_channel_id"] = channelID
+				c.Set(ginKeyChannelAffinityLogInfo, info)
+			}
 		}
 	}
 	cacheKey, ttlSeconds, ok := getChannelAffinityContext(c)

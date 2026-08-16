@@ -7,8 +7,10 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
@@ -82,7 +84,7 @@ func GetOptions(c *gin.Context) {
 	optionValues := make(map[string]string)
 	common.OptionMapRWMutex.Lock()
 	for k, v := range common.OptionMap {
-		if k == "theme.frontend" {
+		if k == "theme.frontend" || k == "channel_affinity_setting.overload_policy" {
 			continue
 		}
 		value := common.Interface2String(v)
@@ -157,6 +159,48 @@ func UpdateOption(c *gin.Context) {
 		if isPaymentComplianceOptionKey(option.Key) {
 			common.ApiErrorMsg(c, "合规确认字段不允许通过通用设置接口修改")
 			return
+		}
+	}
+	if option.Key == "channel_affinity_setting.overload_policy" {
+		common.ApiErrorMsg(c, "overload_policy 已停用")
+		return
+	}
+	if strings.HasPrefix(option.Key, "channel_affinity_setting.") {
+		value, parseErr := strconv.Atoi(strings.TrimSpace(option.Value.(string)))
+		settings := operation_setting.GetChannelAffinitySetting()
+		switch option.Key {
+		case "channel_affinity_setting.default_account_rpm":
+			if parseErr != nil || value < 1 || value+settings.AccountBurst > dto.OpenCodeGoHardRPMLimit {
+				common.ApiErrorMsg(c, "默认软RPM必须至少为1，且软RPM + burst不得超过账号硬限制1600")
+				return
+			}
+		case "channel_affinity_setting.account_burst":
+			if parseErr != nil || value < 1 || settings.DefaultAccountRPM+value > dto.OpenCodeGoHardRPMLimit {
+				common.ApiErrorMsg(c, "burst必须至少为1，且默认软RPM + burst不得超过账号硬限制1600")
+				return
+			}
+			for offset := 0; ; offset += 1000 {
+				channels, listErr := model.GetChannelsByType(offset, 1000, true, constant.ChannelTypeOpenCodeGo)
+				if listErr != nil {
+					common.ApiError(c, listErr)
+					return
+				}
+				for _, channel := range channels {
+					override := channel.GetOtherSettings().OpenCodeGoRPMLimit
+					if override > 0 && override+value > dto.OpenCodeGoHardRPMLimit {
+						common.ApiErrorMsg(c, fmt.Sprintf("渠道 %s（ID %d）的软RPM + burst将超过账号硬限制1600", channel.Name, channel.Id))
+						return
+					}
+				}
+				if len(channels) < 1000 {
+					break
+				}
+			}
+		case "channel_affinity_setting.rate_limit_cooldown_seconds":
+			if parseErr != nil || value < 1 || value > 60 {
+				common.ApiErrorMsg(c, "429冷却时间必须在1到60秒之间")
+				return
+			}
 		}
 	}
 	switch option.Key {

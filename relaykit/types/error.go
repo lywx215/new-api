@@ -77,6 +77,7 @@ const (
 	ErrorCodeAwsInvokeError         ErrorCode = "aws_invoke_error"
 	ErrorCodeModelNotFound          ErrorCode = "model_not_found"
 	ErrorCodePromptBlocked          ErrorCode = "prompt_blocked"
+	ErrorCodeOpenCodeGoRPMLimit     ErrorCode = "opencodego_rpm_soft_limit"
 
 	// sql error
 	ErrorCodeQueryDataError  ErrorCode = "query_data_error"
@@ -88,14 +89,29 @@ const (
 )
 
 type NewAPIError struct {
-	Err            error
-	RelayError     any
-	skipRetry      bool
-	recordErrorLog *bool
-	errorType      ErrorType
-	errorCode      ErrorCode
-	StatusCode     int
-	Metadata       json.RawMessage
+	Err              error
+	RelayError       any
+	skipRetry        bool
+	recordErrorLog   *bool
+	errorType        ErrorType
+	errorCode        ErrorCode
+	StatusCode       int
+	Metadata         json.RawMessage
+	retryAfterHeader string
+}
+
+func (e *NewAPIError) SetRetryAfterHeader(value string) {
+	if e == nil {
+		return
+	}
+	e.retryAfterHeader = value
+}
+
+func (e *NewAPIError) GetRetryAfterHeader() string {
+	if e == nil {
+		return ""
+	}
+	return e.retryAfterHeader
 }
 
 // Unwrap enables errors.Is / errors.As to work with NewAPIError by exposing the underlying error.

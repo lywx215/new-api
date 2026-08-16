@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -120,6 +121,43 @@ func TestRelayErrorHandlerKeepsOpenAIErrorMessage(t *testing.T) {
 
 	require.NotNil(t, newAPIError)
 	require.Equal(t, message, newAPIError.Error())
+}
+
+func TestRelayErrorHandlerCarriesValidRetryAfter(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	tests := []struct {
+		name   string
+		header string
+		want   string
+	}{
+		{name: "integer", header: " 12 ", want: "12"},
+		{name: "http date", header: now.Add(time.Minute).Format(http.TimeFormat), want: now.Add(time.Minute).Format(http.TimeFormat)},
+		{name: "zero", header: "0"},
+		{name: "past date", header: now.Add(-time.Minute).Format(http.TimeFormat)},
+		{name: "invalid", header: "later"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resp := &http.Response{
+				StatusCode: http.StatusTooManyRequests,
+				Header:     http.Header{"Retry-After": []string{test.header}},
+				Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"limited","code":"opencodego_rpm_soft_limit"}}`)),
+			}
+			err := RelayErrorHandler(context.Background(), resp, false)
+			require.Equal(t, test.want, err.GetRetryAfterHeader())
+			require.Equal(t, types.ErrorCodeOpenCodeGoRPMLimit, err.GetErrorCode())
+		})
+	}
+}
+
+func TestRelayErrorHandlerDoesNotCarryRetryAfterOnNon429(t *testing.T) {
+	resp := &http.Response{
+		StatusCode: http.StatusInternalServerError,
+		Header:     http.Header{"Retry-After": []string{"12"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"failed"}}`)),
+	}
+	err := RelayErrorHandler(context.Background(), resp, false)
+	require.Empty(t, err.GetRetryAfterHeader())
 }
 
 func TestRelayErrorHandlerKeepsInvalidJSONBodyInDebugLog(t *testing.T) {

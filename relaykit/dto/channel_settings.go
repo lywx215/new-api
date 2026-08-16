@@ -30,6 +30,7 @@ const (
 	HTTPProtocolAuto         = "auto"
 	HTTPProtocolHTTP1        = "http1"
 	MaxHTTP2ConnectionShards = 8
+	OpenCodeGoHardRPMLimit   = 1600
 )
 
 // ValidateHTTPTransport validates save-time HTTP transport channel settings.
@@ -69,6 +70,7 @@ const (
 type ChannelOtherSettings struct {
 	ModelProtocols                        map[string]string     `json:"model_protocols,omitempty"`
 	DisableOpenCodeGoAutoCache            bool                  `json:"disable_opencodego_auto_cache,omitempty"`
+	OpenCodeGoRPMLimit                    int                   `json:"opencodego_rpm_limit,omitempty"`
 	AzureResponsesVersion                 string                `json:"azure_responses_version,omitempty"`
 	VertexKeyType                         VertexKeyType         `json:"vertex_key_type,omitempty"` // "json" or "api_key"
 	OpenRouterEnterprise                  *bool                 `json:"openrouter_enterprise,omitempty"`
@@ -95,6 +97,9 @@ type ChannelOtherSettings struct {
 func (s *ChannelOtherSettings) ValidateModelProtocols() error {
 	if s == nil {
 		return nil
+	}
+	if s.OpenCodeGoRPMLimit < 0 || s.OpenCodeGoRPMLimit >= OpenCodeGoHardRPMLimit {
+		return fmt.Errorf("opencodego_rpm_limit must be 0 (inherit) or between 1 and %d", OpenCodeGoHardRPMLimit-1)
 	}
 	for pattern, protocol := range s.ModelProtocols {
 		pattern = strings.TrimSpace(pattern)

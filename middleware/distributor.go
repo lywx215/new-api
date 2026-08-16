@@ -104,6 +104,7 @@ func Distribute() func(c *gin.Context) {
 
 				if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, modelRequest.Model, usingGroup); found {
 					affinityUsable := false
+					affinityRateLimited := false
 					preferred, err := model.CacheGetChannel(preferredChannelID)
 					if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled &&
 						channelSupportsRequestPath(preferred, c.Request.URL.Path, modelRequest.Model) {
@@ -127,7 +128,16 @@ func Distribute() func(c *gin.Context) {
 							service.MarkChannelAffinityUsed(c, usingGroup, preferred.Id)
 						}
 					}
-					if !affinityUsable && !service.ShouldKeepChannelAffinityOnChannelDisabled() {
+					if affinityUsable {
+						allowed, _, remaining := service.TryReserveOpenCodeGoRPM(c, channel)
+						if !allowed {
+							service.MarkChannelAffinityMigration(c, channel.Id, 0, "rpm_soft_limit", remaining)
+							channel = nil
+							affinityUsable = false
+							affinityRateLimited = true
+						}
+					}
+					if !affinityUsable && !affinityRateLimited && !service.ShouldKeepChannelAffinityOnChannelDisabled() {
 						service.ClearCurrentChannelAffinityCache(c)
 					}
 				}
@@ -141,6 +151,11 @@ func Distribute() func(c *gin.Context) {
 						Retry:       common.GetPointer(0),
 					})
 					if err != nil {
+						if rpmErr, ok := service.AsOpenCodeGoRPMError(err); ok {
+							c.Header("Retry-After", strconv.Itoa(rpmErr.RetryAfter))
+							abortWithOpenAiMessage(c, http.StatusTooManyRequests, rpmErr.Error(), types.ErrorCodeOpenCodeGoRPMLimit)
+							return
+						}
 						showGroup := usingGroup
 						if usingGroup == "auto" {
 							showGroup = fmt.Sprintf("auto(%s)", selectGroup)

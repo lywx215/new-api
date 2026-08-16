@@ -2797,6 +2797,39 @@ export function ChannelMutateDrawer({
                             {isOpenCodeGoChannelType(currentType) && (
                               <FormField
                                 control={form.control}
+                                name='opencodego_rpm_limit'
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>
+                                      {t('OpenCodeGo account RPM limit')}
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        type='number'
+                                        min={0}
+                                        max={1599}
+                                        value={field.value ?? 0}
+                                        onChange={(event) =>
+                                          field.onChange(
+                                            Number(event.target.value)
+                                          )
+                                        }
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      {t(
+                                        'Set 0 to inherit the global default account RPM. A positive value overrides the soft limit; effective soft RPM plus global burst must not exceed the account hard limit of 1600.'
+                                      )}
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            )}
+
+                            {isOpenCodeGoChannelType(currentType) && (
+                              <FormField
+                                control={form.control}
                                 name='model_protocols'
                                 render={({ field }) => (
                                   <FormItem>

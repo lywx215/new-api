@@ -144,6 +144,48 @@ export function ChannelAffinitySection(props: Props) {
   const [rules, setRules] = useState<AffinityRule[]>(() =>
     parseRules(props.defaultValues['channel_affinity_setting.rules'])
   )
+  const makeInternalSettings = useCallback(
+    () => ({
+      accept_internal_key:
+        props.defaultValues['channel_affinity_setting.accept_internal_key'] ??
+        false,
+      generate_internal_key:
+        props.defaultValues['channel_affinity_setting.generate_internal_key'] ??
+        false,
+      use_prompt_cache_key:
+        props.defaultValues['channel_affinity_setting.use_prompt_cache_key'] ??
+        true,
+      use_opencode_session:
+        props.defaultValues['channel_affinity_setting.use_opencode_session'] ??
+        true,
+      use_metadata_user_id:
+        props.defaultValues['channel_affinity_setting.use_metadata_user_id'] ??
+        false,
+      generate_fallback_key:
+        props.defaultValues['channel_affinity_setting.generate_fallback_key'] ??
+        true,
+      max_source_bytes:
+        props.defaultValues['channel_affinity_setting.max_source_bytes'] ??
+        32768,
+      affinity_ttl_seconds:
+        props.defaultValues['channel_affinity_setting.affinity_ttl_seconds'] ??
+        3600,
+      rpm_guard_enabled:
+        props.defaultValues['channel_affinity_setting.rpm_guard_enabled'] ??
+        false,
+      default_account_rpm:
+        props.defaultValues['channel_affinity_setting.default_account_rpm'] ??
+        1450,
+      account_burst:
+        props.defaultValues['channel_affinity_setting.account_burst'] ?? 50,
+      rate_limit_cooldown_seconds:
+        props.defaultValues[
+          'channel_affinity_setting.rate_limit_cooldown_seconds'
+        ] ?? 10,
+    }),
+    [props.defaultValues]
+  )
+  const [internalSettings, setInternalSettings] = useState(makeInternalSettings)
 
   const [editMode, setEditMode] = useState<'visual' | 'json'>('visual')
   const [jsonText, setJsonText] = useState(() =>
@@ -189,7 +231,8 @@ export function ChannelAffinitySection(props: Props) {
         2
       )
     )
-  }, [props.defaultValues])
+    setInternalSettings(makeInternalSettings())
+  }, [props.defaultValues, makeInternalSettings])
 
   const refreshCache = useCallback(async () => {
     setCacheLoading(true)
@@ -235,6 +278,26 @@ export function ChannelAffinitySection(props: Props) {
   }
 
   const handleSave = async () => {
+    if (
+      internalSettings.default_account_rpm < 1 ||
+      internalSettings.account_burst < 1 ||
+      internalSettings.default_account_rpm + internalSettings.account_burst >
+        1600
+    ) {
+      toast.error(
+        t(
+          'Soft RPM and burst must both be at least 1, and their sum must not exceed the account hard limit of 1600.'
+        )
+      )
+      return
+    }
+    if (
+      internalSettings.rate_limit_cooldown_seconds < 1 ||
+      internalSettings.rate_limit_cooldown_seconds > 60
+    ) {
+      toast.error(t('429 cooldown must be between 1 and 60 seconds.'))
+      return
+    }
     let rulesJson: string
     if (editMode === 'json') {
       try {
@@ -299,6 +362,14 @@ export function ChannelAffinitySection(props: Props) {
         })
       }
 
+      for (const [name, value] of Object.entries(internalSettings)) {
+        const key =
+          `channel_affinity_setting.${name}` as keyof ChannelAffinitySettings
+        if (value !== props.defaultValues[key]) {
+          updates.push({ key, value: String(value) })
+        }
+      }
+
       const origRules = props.defaultValues['channel_affinity_setting.rules']
       const origSerialized = (() => {
         try {
@@ -320,6 +391,32 @@ export function ChannelAffinitySection(props: Props) {
       }
 
       for (const u of updates) {
+        // Combined RPM settings are validated on every API call. Persist reductions
+        // before increases so a valid final pair is never rejected transiently.
+        if (
+          u.key === 'channel_affinity_setting.default_account_rpm' ||
+          u.key === 'channel_affinity_setting.account_burst'
+        ) {
+          continue
+        }
+        await updateOption.mutateAsync(u)
+      }
+      const rpmUpdates = updates
+        .filter(
+          (u) =>
+            u.key === 'channel_affinity_setting.default_account_rpm' ||
+            u.key === 'channel_affinity_setting.account_burst'
+        )
+        .sort((a, b) => {
+          const previousA = Number(
+            props.defaultValues[a.key as keyof ChannelAffinitySettings]
+          )
+          const previousB = Number(
+            props.defaultValues[b.key as keyof ChannelAffinitySettings]
+          )
+          return Number(a.value) - previousA - (Number(b.value) - previousB)
+        })
+      for (const u of rpmUpdates) {
         await updateOption.mutateAsync(u)
       }
       toast.success(t('Saved successfully'))
@@ -417,7 +514,10 @@ export function ChannelAffinitySection(props: Props) {
           <SettingsSwitchField
             checked={enabled}
             onCheckedChange={setEnabled}
-            label={t('Enable')}
+            label={t('Enable custom affinity rules')}
+            description={t(
+              'Controls only the custom rules below. Trusted internal affinity is controlled independently by Accept internal affinity key.'
+            )}
             className='py-0'
           />
           <div className='grid gap-1.5'>
@@ -456,6 +556,231 @@ export function ChannelAffinitySection(props: Props) {
             'When enabled, keep the affinity entry even if the affinity channel is disabled or no longer usable for the current group/model. Leave it off to delete the entry and select another channel.'
           )}
         />
+
+        <Separator />
+
+        <div className='grid gap-4'>
+          <div>
+            <h3 className='text-sm font-medium'>
+              {t('Internal Channel Affinity')}
+            </h3>
+            <p className='text-muted-foreground text-xs'>
+              {t(
+                'The upper New API signs a compact affinity key and the lower New API verifies it before routing. Configure the same AFFINITY_SECRET on every node.'
+              )}
+            </p>
+          </div>
+          <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
+            {[
+              [
+                'accept_internal_key',
+                'Accept internal affinity key',
+                'When enabled, this node verifies and uses signed internal affinity headers. When disabled, the header is ignored.',
+              ],
+              [
+                'generate_internal_key',
+                'Generate internal affinity key',
+                'When enabled, requests sent through New API channels receive a signed affinity header. Ordinary upstream channels are unaffected.',
+              ],
+              [
+                'use_prompt_cache_key',
+                'Use prompt cache key',
+                'When enabled, prompt_cache_key is preferred because it is usually closest to the real cache session.',
+              ],
+              [
+                'use_opencode_session',
+                'Use OpenCode session',
+                'When enabled, x-opencode-session is combined with a stable request fingerprint and is never used alone.',
+              ],
+              [
+                'use_metadata_user_id',
+                'Use metadata user ID',
+                'Disabled by default because metadata.user_id is often user-level. When enabled, it is still combined with a stable request fingerprint.',
+              ],
+              [
+                'generate_fallback_key',
+                'Generate fallback key',
+                'When enabled, requests without a reliable session field use a stable request prefix. When disabled, those requests keep existing random routing.',
+              ],
+              [
+                'rpm_guard_enabled',
+                'Enable OpenCodeGo RPM guard',
+                'When enabled, Redis protects each OpenCodeGo account with a soft RPM limit and migrates overloaded affinity sessions. When disabled, routing behavior is unchanged.',
+              ],
+            ].map(([name, label, description]) => (
+              <SettingsSwitchField
+                key={name}
+                checked={Boolean(
+                  internalSettings[name as keyof typeof internalSettings]
+                )}
+                onCheckedChange={(checked) =>
+                  setInternalSettings((current) => ({
+                    ...current,
+                    [name]: checked,
+                  }))
+                }
+                label={t(label)}
+                description={t(description)}
+              />
+            ))}
+          </div>
+          <div className='grid grid-cols-1 gap-4 md:grid-cols-4'>
+            {[
+              [
+                'max_source_bytes',
+                'Max source bytes',
+                1024,
+                'Limits stable text collected for the fingerprint; it does not limit the client request body.',
+              ],
+              [
+                'affinity_ttl_seconds',
+                'Internal affinity TTL (seconds)',
+                1,
+                'Controls how long the lower New API keeps an affinity key mapped to an OpenCodeGo account.',
+              ],
+              [
+                'default_account_rpm',
+                'Default account RPM',
+                1,
+                'The soft per-account limit inherited by OpenCodeGo channels whose channel RPM is 0. Soft RPM plus burst must not exceed the account hard limit of 1600.',
+              ],
+              [
+                'account_burst',
+                'Account burst',
+                1,
+                'Maximum immediately available token count; this is not the requests-per-minute limit. Soft RPM plus burst must not exceed the account hard limit of 1600.',
+              ],
+              [
+                'rate_limit_cooldown_seconds',
+                '429 cooldown (seconds)',
+                1,
+                'Used when an upstream 429 has no Retry-After value. Upstream cooldown is capped at 60 seconds.',
+              ],
+            ].map(([name, label, min, description]) => (
+              <div className='grid gap-1.5' key={name}>
+                <Label>{t(String(label))}</Label>
+                <Input
+                  type='number'
+                  min={Number(min)}
+                  value={Number(
+                    internalSettings[name as keyof typeof internalSettings]
+                  )}
+                  onChange={(event) =>
+                    setInternalSettings((current) => ({
+                      ...current,
+                      [name]: Number(event.target.value),
+                    }))
+                  }
+                />
+                <p className='text-muted-foreground text-xs'>
+                  {t(String(description))}
+                </p>
+              </div>
+            ))}
+          </div>
+          <Alert>
+            <AlertDescription className='text-xs'>
+              {t(
+                'Availability-first policy: when an account reaches its soft limit, the session moves to another account. This can cause one temporary cache miss. If every account is saturated, the gateway returns 429 with Retry-After.'
+              )}
+            </AlertDescription>
+          </Alert>
+          {cacheStats?.internal_affinity && (
+            <div className='space-y-2'>
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  'Current node metrics for {{node}}; counters reset when this process restarts.',
+                  { node: cacheStats.internal_affinity.node_name || '-' }
+                )}
+              </p>
+              <div className='grid grid-cols-2 gap-2 text-xs md:grid-cols-5'>
+                <StatusBadge
+                  label={`${t('Generated')}: ${cacheStats.internal_affinity.generated}`}
+                  variant='neutral'
+                  size='sm'
+                />
+                <StatusBadge
+                  label={`${t('Signature failures')}: ${cacheStats.internal_affinity.signature_invalid}`}
+                  variant='neutral'
+                  size='sm'
+                />
+                <StatusBadge
+                  label={`${t('Affinity hit rate')}: ${cacheStats.internal_affinity.affinity_hits}/${cacheStats.internal_affinity.affinity_lookups}`}
+                  variant='neutral'
+                  size='sm'
+                />
+                <StatusBadge
+                  label={`${t('RPM migrations')}: ${cacheStats.internal_affinity.rpm_migrations}`}
+                  variant='neutral'
+                  size='sm'
+                />
+                <StatusBadge
+                  label={`${t('Upstream 429')}: ${cacheStats.internal_affinity.upstream_429}`}
+                  variant='neutral'
+                  size='sm'
+                />
+                <StatusBadge
+                  label={`${t('Fallback not generated')}: ${cacheStats.internal_affinity.fallback_not_generated}`}
+                  variant='neutral'
+                  size='sm'
+                />
+              </div>
+              <div className='text-muted-foreground text-xs'>
+                {Object.entries(
+                  cacheStats.internal_affinity.generated_by_source
+                )
+                  .map(([source, count]) => {
+                    const generated =
+                      cacheStats.internal_affinity?.generated ?? 0
+                    const ratio =
+                      generated > 0
+                        ? ((count / generated) * 100).toFixed(1)
+                        : '0.0'
+                    return `${source}: ${count} (${ratio}%)`
+                  })
+                  .join(' · ')}
+              </div>
+            </div>
+          )}
+          {cacheStats?.opencodego_rpm_truncated && (
+            <Alert>
+              <AlertDescription className='text-xs'>
+                {t(
+                  'OpenCodeGo RPM status is truncated: showing the first 1000 of {{total}} channels.',
+                  { total: cacheStats.opencodego_rpm_total ?? 0 }
+                )}
+              </AlertDescription>
+            </Alert>
+          )}
+          {cacheStats?.opencodego_rpm &&
+            cacheStats.opencodego_rpm.length > 0 && (
+              <div className='space-y-2'>
+                <Label>{t('OpenCodeGo account status')}</Label>
+                {cacheStats.opencodego_rpm.map((status) => (
+                  <div
+                    key={status.channel_id}
+                    className='text-muted-foreground rounded-md border p-2 text-xs'
+                  >
+                    <span className='text-foreground font-medium'>
+                      {status.channel_name} (#{status.channel_id})
+                    </span>{' '}
+                    · {t('Current minute requests')}:{' '}
+                    {status.requests_current_minute}/{status.rpm_limit} ·{' '}
+                    {t('Remaining tokens')}:{' '}
+                    {status.remaining_tokens < 0
+                      ? t('Unavailable')
+                      : status.remaining_tokens.toFixed(1)}
+                    {status.cooldown_seconds > 0 && (
+                      <>
+                        {' '}
+                        · {t('Cooldown seconds')}: {status.cooldown_seconds}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+        </div>
 
         <Separator />
 

@@ -62,6 +62,7 @@ func InitEnv() {
 	} else {
 		CryptoSecret = SessionSecret
 	}
+	initializeAffinitySecret()
 	if err := InitSessionCookieSettings(); err != nil {
 		log.Fatal(err)
 	}

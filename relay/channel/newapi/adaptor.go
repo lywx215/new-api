@@ -98,6 +98,7 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
+	relaycommon.ApplyInternalAffinityHeader(c, info)
 	return channel.DoApiRequest(a, c, info, requestBody)
 }
 

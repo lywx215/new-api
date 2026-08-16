@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -479,6 +480,12 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 	// 校验 channel settings
 	if err := channel.ValidateSettings(); err != nil {
 		return fmt.Errorf("渠道额外设置[channel setting] 格式错误：%s", err.Error())
+	}
+	if channel.Type == constant.ChannelTypeOpenCodeGo {
+		override := channel.GetOtherSettings().OpenCodeGoRPMLimit
+		if override > 0 && override+operation_setting.GetChannelAffinitySetting().AccountBurst > dto.OpenCodeGoHardRPMLimit {
+			return fmt.Errorf("OpenCodeGo渠道软RPM + burst不得超过账号硬限制1600")
+		}
 	}
 
 	if channel.Type == constant.ChannelTypeNewAPI && strings.TrimSpace(channel.GetBaseURL()) == "" {

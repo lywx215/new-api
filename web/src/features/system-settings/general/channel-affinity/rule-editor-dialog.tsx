@@ -392,6 +392,17 @@ export function RuleEditorDialog(props: Props) {
               </div>
             ))}
           </div>
+          {keySources.some(
+            (source) =>
+              source.type === 'gjson' &&
+              source.path?.trim() === 'metadata.user_id'
+          ) && (
+            <p className='text-destructive mt-2 text-xs'>
+              {t(
+                'metadata.user_id may be a user-level identifier. Using it directly can pin all traffic from one user to a single account; prefer trusted internal affinity or combine it with a session-level value.'
+              )}
+            </p>
+          )}
         </div>
 
         <Separator />

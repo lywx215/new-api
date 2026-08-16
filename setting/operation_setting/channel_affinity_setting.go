@@ -34,6 +34,18 @@ type ChannelAffinitySetting struct {
 	MaxEntries            int                   `json:"max_entries"`
 	DefaultTTLSeconds     int                   `json:"default_ttl_seconds"`
 	Rules                 []ChannelAffinityRule `json:"rules"`
+	AcceptInternalKey     bool                  `json:"accept_internal_key"`
+	GenerateInternalKey   bool                  `json:"generate_internal_key"`
+	UsePromptCacheKey     bool                  `json:"use_prompt_cache_key"`
+	UseOpenCodeSession    bool                  `json:"use_opencode_session"`
+	UseMetadataUserID     bool                  `json:"use_metadata_user_id"`
+	GenerateFallbackKey   bool                  `json:"generate_fallback_key"`
+	MaxSourceBytes        int                   `json:"max_source_bytes"`
+	AffinityTTLSeconds    int                   `json:"affinity_ttl_seconds"`
+	RPMGuardEnabled       bool                  `json:"rpm_guard_enabled"`
+	DefaultAccountRPM     int                   `json:"default_account_rpm"`
+	AccountBurst          int                   `json:"account_burst"`
+	RateLimitCooldownSecs int                   `json:"rate_limit_cooldown_seconds"`
 }
 
 // Keep Codex CLI passthrough aligned with upstream. Codex uses lower-case
@@ -115,6 +127,18 @@ var channelAffinitySetting = ChannelAffinitySetting{
 	KeepOnChannelDisabled: false,
 	MaxEntries:            100_000,
 	DefaultTTLSeconds:     3600,
+	AcceptInternalKey:     false,
+	GenerateInternalKey:   false,
+	UsePromptCacheKey:     true,
+	UseOpenCodeSession:    true,
+	UseMetadataUserID:     false,
+	GenerateFallbackKey:   true,
+	MaxSourceBytes:        32768,
+	AffinityTTLSeconds:    3600,
+	RPMGuardEnabled:       false,
+	DefaultAccountRPM:     1450,
+	AccountBurst:          50,
+	RateLimitCooldownSecs: 10,
 	Rules: []ChannelAffinityRule{
 		{
 			Name:       "codex cli trace",

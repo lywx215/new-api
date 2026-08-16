@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"math"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -9,6 +10,31 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 )
+
+func selectChannelWithRPMCapacity(c *gin.Context, group, modelName string, retry int, requestPath string) (*model.Channel, error) {
+	excluded := make(map[int]struct{})
+	minimumWait := math.MaxInt
+	for {
+		channel, err := model.GetRandomSatisfiedChannelExcluding(group, modelName, retry, requestPath, excluded)
+		if err != nil || channel == nil {
+			if len(excluded) > 0 && err == nil {
+				if minimumWait == math.MaxInt {
+					minimumWait = 1
+				}
+				return nil, &OpenCodeGoRPMError{RetryAfter: minimumWait}
+			}
+			return channel, err
+		}
+		allowed, wait, _ := TryReserveOpenCodeGoRPM(c, channel)
+		if allowed {
+			return channel, nil
+		}
+		excluded[channel.Id] = struct{}{}
+		if wait > 0 && wait < minimumWait {
+			minimumWait = wait
+		}
+	}
+}
 
 type RetryParam struct {
 	Ctx          *gin.Context
@@ -103,8 +129,11 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			}
 		}
 
+		minimumRPMWait := math.MaxInt
+		hadRPMCapacityError := false
 		for i := startGroupIndex; i < len(autoGroups); i++ {
 			autoGroup := autoGroups[i]
+			selectGroup = autoGroup
 			// Calculate priorityRetry for current group
 			// 计算当前分组的 priorityRetry
 			priorityRetry := param.GetRetry()
@@ -115,7 +144,21 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			}
 			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
 
-			channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, param.RequestPath)
+			channel, err = selectChannelWithRPMCapacity(param.Ctx, autoGroup, param.ModelName, priorityRetry, param.RequestPath)
+			if err != nil {
+				if rpmErr, ok := AsOpenCodeGoRPMError(err); ok {
+					hadRPMCapacityError = true
+					if rpmErr.RetryAfter > 0 && rpmErr.RetryAfter < minimumRPMWait {
+						minimumRPMWait = rpmErr.RetryAfter
+					}
+					logger.LogDebug(param.Ctx, "OpenCodeGo accounts in group %s are at their RPM soft limit, trying next auto group", autoGroup)
+					common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i+1)
+					common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupRetryIndex, 0)
+					param.SetRetry(0)
+					continue
+				}
+				return nil, autoGroup, err
+			}
 			if channel == nil {
 				// Current group has no available channel for this model, try next group
 				// 当前分组没有该模型的可用渠道，尝试下一个分组
@@ -152,8 +195,14 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			}
 			break
 		}
+		if channel == nil && hadRPMCapacityError {
+			if minimumRPMWait == math.MaxInt {
+				minimumRPMWait = 1
+			}
+			return nil, selectGroup, &OpenCodeGoRPMError{RetryAfter: minimumRPMWait}
+		}
 	} else {
-		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), param.RequestPath)
+		channel, err = selectChannelWithRPMCapacity(param.Ctx, param.TokenGroup, param.ModelName, param.GetRetry(), param.RequestPath)
 		if err != nil {
 			return nil, param.TokenGroup, err
 		}

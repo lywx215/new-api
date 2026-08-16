@@ -111,6 +111,7 @@ export interface ChannelOtherSettings {
   advanced_custom?: AdvancedCustomConfig
   model_protocols?: Record<string, 'openai' | 'anthropic' | 'responses'>
   disable_opencodego_auto_cache?: boolean
+  opencodego_rpm_limit?: number
 }
 
 export interface AdvancedCustomConfig {
