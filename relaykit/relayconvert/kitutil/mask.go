@@ -7,9 +7,10 @@ import (
 )
 
 var (
-	maskURLPattern    = regexp.MustCompile(`(http|https)://[^\s/$.?#].[^\s]*`)
-	maskDomainPattern = regexp.MustCompile(`\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}\b`)
-	maskIPPattern     = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
+	maskURLPattern               = regexp.MustCompile(`(http|https)://[^\s/$.?#].[^\s]*`)
+	maskDomainPattern            = regexp.MustCompile(`\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}\b`)
+	maskIPPattern                = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
+	maskOpenCodeWorkspacePattern = regexp.MustCompile(`\bwrk_[a-zA-Z0-9_-]+\b`)
 	// maskApiKeyPattern matches patterns like 'api_key:xxx' or "api_key:xxx" to mask the API key value
 	maskApiKeyPattern = regexp.MustCompile(`(['"]?)api_key:([^\s'"]+)(['"]?)`)
 )
@@ -126,6 +127,10 @@ func MaskSensitiveInfo(str string) string {
 
 	// Mask IP addresses
 	str = maskIPPattern.ReplaceAllString(str, "***.***.***.***")
+
+	// OpenCode workspace identifiers can also appear as standalone JSON metadata,
+	// outside a URL that the URL masker already protects.
+	str = maskOpenCodeWorkspacePattern.ReplaceAllString(str, "wrk_***")
 
 	// Mask API keys (e.g., "api_key:AIzaSyAAAaUooTUni8AdaOkSRMda30n_Q4vrV70" -> "api_key:***")
 	str = maskApiKeyPattern.ReplaceAllString(str, "${1}api_key:***${3}")

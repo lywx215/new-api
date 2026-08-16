@@ -514,6 +514,11 @@ export function RoutingReliabilitySection({
           <div className='flex min-w-0 flex-col gap-4'>
             <div className='flex flex-col gap-1'>
               <h4 className='text-sm font-medium'>{t('Auto-disable rules')}</h4>
+              <p className='text-muted-foreground text-sm'>
+                {t(
+                  'For OpenCodeGo, ordinary RPM 429 responses only trigger a temporary cooldown when the RPM guard and Redis are available. Matching a failure keyword disables the actual account channel, while the upper New API channel is not disabled by downstream account 429 responses.'
+                )}
+              </p>
             </div>
             <div className='grid min-w-0 gap-6 lg:grid-cols-2'>
               <FormField

@@ -437,21 +437,21 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	if resp != nil {
 		httpResp = resp.(*http.Response)
 		if httpResp.StatusCode != http.StatusOK {
-			err := service.RelayErrorHandler(c.Request.Context(), httpResp, true)
+			newAPIError := service.RelayErrorHandler(c.Request.Context(), httpResp, true)
 			common.SysError(fmt.Sprintf(
-				"channel test bad response: channel_id=%d name=%s type=%d model=%s endpoint_type=%s status=%d err=%v",
+				"channel test bad response: channel_id=%d name=%s type=%d model=%s endpoint_type=%s status=%d err=%s",
 				channel.Id,
 				channel.Name,
 				channel.Type,
 				testModel,
 				endpointType,
 				httpResp.StatusCode,
-				err,
+				common.LocalLogPreview(newAPIError.MaskSensitiveErrorWithStatusCode()),
 			))
 			return testResult{
 				context:     c,
-				localErr:    err,
-				newAPIError: types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError),
+				localErr:    newAPIError,
+				newAPIError: newAPIError,
 			}
 		}
 	}
@@ -908,11 +908,17 @@ type channelTestSummary struct {
 	Enabled   int `json:"enabled"`
 }
 
+type channelTestErrorProcessor func(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError)
+
 // performChannelTests runs the channel test loop synchronously, honoring ctx
 // cancellation so a system-task runner that loses its lease stops promptly. When
 // report is non-nil it is called after each channel with (processed, total) so
 // the system task can surface progress.
 func performChannelTests(ctx context.Context, channels []*model.Channel, testUserID int, allowDisable bool, report func(processed, total int)) channelTestSummary {
+	return performChannelTestsWithErrorProcessor(ctx, channels, testUserID, allowDisable, report, processChannelError)
+}
+
+func performChannelTestsWithErrorProcessor(ctx context.Context, channels []*model.Channel, testUserID int, allowDisable bool, report func(processed, total int), processError channelTestErrorProcessor) channelTestSummary {
 	summary := channelTestSummary{}
 	var disableThreshold = int64(common.ChannelDisableThreshold * 1000)
 	if disableThreshold == 0 {
@@ -945,7 +951,7 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 		newAPIError := result.newAPIError
 		// request error disables the channel
 		if newAPIError != nil {
-			shouldBanChannel = service.ShouldDisableChannel(result.newAPIError)
+			shouldBanChannel, _ = service.ShouldDisableChannel(channel.Type, result.newAPIError)
 		}
 
 		// 当错误检查通过，才检查响应时间
@@ -965,7 +971,7 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 
 		// disable channel
 		if allowDisable && isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
-			processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+			processError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 			summary.Disabled++
 		}
 

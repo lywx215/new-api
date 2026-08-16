@@ -2066,6 +2066,7 @@
     "footer.defaultCopyright": "Bản quyền được bảo lưu.",
     "footer.new\u0061pi.projectAttributionSuffix": "Bản quyền được bảo lưu. Được thiết kế và phát triển bởi các cộng tác viên dự án.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Đối với các kênh được thêm sau ngày 10 tháng 5 năm 2025, không cần loại bỏ \".\" khỏi tên mô hình trong quá trình triển khai",
+    "For OpenCodeGo, ordinary RPM 429 responses only trigger a temporary cooldown when the RPM guard and Redis are available. Matching a failure keyword disables the actual account channel, while the upper New API channel is not disabled by downstream account 429 responses.": "Đối với OpenCodeGo, phản hồi RPM 429 thông thường chỉ kích hoạt thời gian tạm nghỉ khi bảo vệ RPM được bật và Redis khả dụng. Khi khớp từ khóa lỗi, kênh tài khoản tương ứng sẽ bị vô hiệu hóa; kênh New API tầng trên vẫn được giữ nguyên sau phản hồi 429 từ tài khoản tầng dưới.",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Đối với các triển khai riêng tư, định dạng: https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "Vì lý do bảo mật, không thể hiển thị lại token truy cập hiện có. Chỉ tạo lại khi bạn cần token mới.",
     "Force a syntactically valid JSON response": "Buộc phản hồi JSON hợp lệ về cú pháp",

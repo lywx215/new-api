@@ -61,6 +61,7 @@ func TestResetStatusCode(t *testing.T) {
 			}
 			ResetStatusCode(newAPIError, tc.statusCodeConfig)
 			require.Equal(t, tc.expectedCode, newAPIError.StatusCode)
+			require.Equal(t, tc.statusCode, newAPIError.GetOriginalHTTPStatusCode())
 		})
 	}
 }
@@ -93,6 +94,36 @@ func TestRelayErrorHandlerTruncatesInvalidJSONBodyInLog(t *testing.T) {
 	require.Contains(t, logBuffer.String(), "[truncated")
 	require.Contains(t, logBuffer.String(), fmt.Sprintf("original_length=%d", len(body)))
 	require.NotContains(t, logBuffer.String(), strings.Repeat("b", common.LocalLogContentLimit+1))
+}
+
+func TestRelayErrorHandlerMasksSensitiveInvalidJSONBodyInLog(t *testing.T) {
+	withDebugEnabled(t, false)
+
+	body := `invalid upstream body workspace=wrk_metadata_secret url=https://opencode.ai/workspace/wrk_path_secret/go?token=supersecret`
+	var logBuffer bytes.Buffer
+
+	common.LogWriterMu.Lock()
+	oldWriter := gin.DefaultErrorWriter
+	gin.DefaultErrorWriter = &logBuffer
+	common.LogWriterMu.Unlock()
+	t.Cleanup(func() {
+		common.LogWriterMu.Lock()
+		gin.DefaultErrorWriter = oldWriter
+		common.LogWriterMu.Unlock()
+	})
+
+	resp := &http.Response{
+		StatusCode: http.StatusInternalServerError,
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+
+	newAPIError := RelayErrorHandler(context.Background(), resp, false)
+
+	require.NotNil(t, newAPIError)
+	require.NotContains(t, logBuffer.String(), "wrk_metadata_secret")
+	require.NotContains(t, logBuffer.String(), "wrk_path_secret")
+	require.NotContains(t, logBuffer.String(), "supersecret")
+	require.NotContains(t, logBuffer.String(), "opencode.ai")
 }
 
 func TestRelayErrorHandlerKeepsStructuredErrorMessage(t *testing.T) {

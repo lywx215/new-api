@@ -190,7 +190,7 @@ WantedBy=multi-user.target
 
 Redis 故障时系统按设计 fail-open，因此可用性保留但可能穿透上游硬限制。立即降低入口流量或临时启用外层限流，恢复 Redis 后验证 Lua、TIME、TTL 和桶状态。不要执行未知范围的 `FLUSHDB`。
 
-真实 429 只应创建临时 cooldown，不应永久禁用渠道。若渠道状态改变，先保存日志和 Redis 快照，再人工恢复渠道，不要直接清除所有亲和缓存。
+真实 429 必须区分原因：普通 RPM 限流不永久禁用；RPM保护开启且Redis可用时只创建临时 cooldown，Redis故障时按既有策略fail-open。套餐、周额度或余额类错误命中管理员配置的失败关键词时，下层会自动禁用对应的 type 99 账号渠道。上层 type 60 不会因下层账号的 429 被禁用。自动禁用要求下层全局开关 `AutomaticDisableChannelEnabled=true`，且目标渠道 `auto_ban=true`。
 
 下层全部账号达到软限制时返回稳定错误码 `opencodego_rpm_soft_limit`。上层type 60必须原样保留合法的整数或HTTP Date格式 `Retry-After`；该错误禁止重试且不得永久禁用type 60或type 99渠道。若中间渠道429后备用渠道成功，最终200响应不得携带 `Retry-After`。
 

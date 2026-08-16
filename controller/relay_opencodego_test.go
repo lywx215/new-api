@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -19,39 +20,82 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestOpenCodeGo429NeverTriggersPermanentChannelDisable(t *testing.T) {
+func TestRelayAutoDisableHonorsChannelAutoBan(t *testing.T) {
 	originalAutomaticDisable := common.AutomaticDisableChannelEnabled
 	common.AutomaticDisableChannelEnabled = true
 	t.Cleanup(func() { common.AutomaticDisableChannelEnabled = originalAutomaticDisable })
 
 	channelError := types.ChannelError{
-		ChannelType: constant.ChannelTypeOpenCodeGo,
-		AutoBan:     true,
+		ChannelType: constant.ChannelTypeOpenAI,
+		AutoBan:     false,
 	}
-	rateLimitError := types.NewErrorWithStatusCode(
-		errors.New("upstream rate limited"),
-		types.ErrorCode("channel:rate_limited"),
-		http.StatusTooManyRequests,
-	)
 	serverError := types.NewErrorWithStatusCode(
 		errors.New("upstream failed"),
 		types.ErrorCode("channel:server_error"),
 		http.StatusInternalServerError,
 	)
 
-	assert.False(t, shouldAutoDisableChannelAfterRelayError(channelError, rateLimitError))
-	assert.True(t, shouldAutoDisableChannelAfterRelayError(channelError, serverError))
+	shouldDisable, reason := shouldAutoDisableChannelAfterRelayError(channelError, serverError)
+	assert.False(t, shouldDisable)
+	assert.Equal(t, service.AutoDisableReasonChannelAutoBanDisabled, reason)
 
-	channelError.ChannelType = constant.ChannelTypeOpenAI
-	assert.True(t, shouldAutoDisableChannelAfterRelayError(channelError, rateLimitError))
+	channelError.AutoBan = true
+	shouldDisable, reason = shouldAutoDisableChannelAfterRelayError(channelError, serverError)
+	assert.True(t, shouldDisable)
+	assert.Equal(t, service.AutoDisableReasonChannelError, reason)
+}
 
-	controlledLimit := types.NewErrorWithStatusCode(
-		errors.New("all OpenCodeGo accounts are limited"),
-		types.ErrorCodeOpenCodeGoRPMLimit,
+func TestRelayErrorLogPreviewMasksSensitiveContent(t *testing.T) {
+	err := types.WithOpenAIError(types.OpenAIError{
+		Message: "weekly limit workspace=wrk_metadata_secret url=https://opencode.ai/workspace/wrk_path_secret/go?token=supersecret",
+		Type:    "GoUsageLimitError",
+		Code:    "unknown_error",
+	}, http.StatusTooManyRequests)
+	err.Err = errors.New(`raw body {"workspace":"wrk_raw_secret","api_key":"raw-secret"}`)
+
+	preview := relayErrorLogPreview(err)
+
+	assert.Contains(t, preview, "weekly limit")
+	assert.NotContains(t, preview, "wrk_metadata_secret")
+	assert.NotContains(t, preview, "wrk_path_secret")
+	assert.NotContains(t, preview, "wrk_raw_secret")
+	assert.NotContains(t, preview, "supersecret")
+	assert.NotContains(t, preview, "raw-secret")
+	assert.NotContains(t, preview, "opencode.ai")
+}
+
+func TestProcessChannelErrorMasksSensitiveLogBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var logBuffer bytes.Buffer
+	common.LogWriterMu.Lock()
+	originalWriter := gin.DefaultErrorWriter
+	gin.DefaultErrorWriter = &logBuffer
+	common.LogWriterMu.Unlock()
+	t.Cleanup(func() {
+		common.LogWriterMu.Lock()
+		gin.DefaultErrorWriter = originalWriter
+		common.LogWriterMu.Unlock()
+	})
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	err := types.NewErrorWithStatusCode(
+		errors.New("weekly limit: https://opencode.ai/workspace/wrk_secret/go?token=supersecret, metadata workspace=wrk_metadata_secret"),
+		types.ErrorCodeBadResponseStatusCode,
 		http.StatusTooManyRequests,
+		types.ErrOptionWithNoRecordErrorLog(),
 	)
-	channelError.ChannelType = constant.ChannelTypeNewAPI
-	assert.False(t, shouldAutoDisableChannelAfterRelayError(channelError, controlledLimit))
+	processChannelError(ctx, types.ChannelError{
+		ChannelId:   17,
+		ChannelType: constant.ChannelTypeOpenCodeGo,
+		AutoBan:     false,
+	}, err)
+
+	logOutput := logBuffer.String()
+	assert.Contains(t, logOutput, "auto-disable reason: channel_auto_ban_disabled")
+	assert.NotContains(t, logOutput, "wrk_secret")
+	assert.NotContains(t, logOutput, "wrk_metadata_secret")
+	assert.NotContains(t, logOutput, "supersecret")
+	assert.NotContains(t, logOutput, "opencode.ai")
 }
 
 func TestApplyRelayErrorHeadersOnlyForFinal429(t *testing.T) {

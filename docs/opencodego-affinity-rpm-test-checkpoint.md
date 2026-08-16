@@ -1,6 +1,18 @@
 # OpenCodeGo 亲和/RPM测试当前检查点
 
-更新时间：2026-08-16 10:32（Asia/Shanghai）
+更新时间：2026-08-16 17:10（Asia/Shanghai）
+
+## 2026-08-16 opencodego.5 自动禁用补丁更新
+
+- 上、下层双实例均已升级到 `v1.0.0-rc.24-opencodego.5`，继续使用现有独立SQLite、共享Redis、Type 60回环渠道、测试Token和三个真实Type 99渠道；未执行环境恢复或全局清理。
+- 升级检查点位于Run 10目录的 `checkpoint-opencodego5-20260816-165826`；升级前后上下层SQLite `PRAGMA integrity_check` 均为 `ok`。
+- 下层已开启 `AutomaticDisableChannelEnabled`，并在保留原关键词的基础上增加 `enable usage from your available balance`；三个真实Type 99渠道均保持 `auto_ban=true`。
+- 低负载真实业务链路发送1个请求：渠道1返回周额度429，下层记录 `auto-disable: true, auto-disable reason: keyword`，渠道状态由启用变为自动禁用。随后重试路径返回受控软限流429及 `Retry-After`，不会把该本地错误误判为永久禁用依据。
+- 验证完成后已通过管理API重新启用渠道1，并精确清理渠道1的RPM/cooldown测试键；当前渠道1、2、3均为启用状态且 `auto_ban=true`。
+- 真实上游正文命中关键词后，重试路径把最终客户端响应替换为本地软限流错误，因此验收产物分别记录 `client_response_keyword_matched=false` 和 `disable_decision_keyword_matched=true`；禁用依据以服务端策略日志为准。
+- 本次只增加1个真实请求，不属于高压测试；累计预算更新为108个真实请求、估算0.096953美元。用户先前决定跳过的真实1600 RPM和三客户4800 RPM场景仍保持跳过，最终总体评级仍为 `PARTIAL`。
+- 本次低负载验收使用新Run ID `ocg-e2e-20260816-14`，从Run 13继承预算；脱敏产物为该目录的 `opencodego5-live-keyword-disable.json`。原始密钥和完整Token不得写入文档或提交。
+- 收口Review补充了 `status_code_mapping` 边界修复和错误日志脱敏。最终源码及全量测试通过，但本机Smart App Control拒绝启动新生成的未签名Windows二进制；安全重启脚本自动恢复了检查点 `checkpoint-opencodego5-final-20260816-172137`。当前上下层继续健康运行已完成真实关键词验收的 `.5` 构建（SHA-256前8位 `7b8af79b`），数据库、配置和三个渠道状态均已复核，SQLite完整性为 `ok`。映射边界增量只完成代码级验收，不能声称已在当前双实例运行验证。
 
 ## 2026-08-16 Run 13 更新
 
@@ -26,12 +38,12 @@ Run 12保留一次测试工具失败审计：业务请求实际在下层渠道3�
 - `verify-channels`已标记为`needs_manual`，本轮没有执行清理、回滚或高压请求。
 - 测试工具已增加重复真实账号密钥检查；Mock渠道被明确排除，避免因其固定测试密钥产生误报。
 
-继续前必须把渠道1或渠道3替换为第三个独立账号，并同时更新上层3000和下层3001。两个实例中三个真实渠道的8位密钥指纹必须互不相同，随后使用新的Run ID继承Run 11预算。
+当时继续前必须把渠道1或渠道3替换为第三个独立账号，并同时更新上层3000和下层3001。该条件后来已经完成；不得据此重新启动已被用户取消的高压测试。
 
-## 当前结论
+## 历史Run 10结论（已被Run 13和本补丁验收取代）
 
 - Run 10为上一轮审计记录；其结论已由上面的Run 11更新取代。
-- 总体状态：`BLOCKED`，阻塞来自真实账号额度，不是代码或SQLite损坏。
+- 当时总体状态：`BLOCKED`，阻塞来自真实账号额度，不是代码或SQLite损坏。
 - 累计真实请求：77 / 10000。
 - 累计估算费用：0.076434 / 10美元。
 - 未执行清理或回滚；测试渠道、Token、Redis和数据库均保留。
@@ -49,7 +61,7 @@ Run 12保留一次测试工具失败审计：业务请求实际在下层渠道3�
 - 双实例SQLite拓扑、节点级指标和内部Header链路。
 - 上层、下层SQLite `PRAGMA integrity_check=ok`。
 
-## 当前阻塞
+## 历史Run 10阻塞
 
 真实渠道1 `go-a` 返回：
 
@@ -79,7 +91,7 @@ Weekly usage limit reached. Resets in about 22 hours.
 
 当前双实例PID和二进制路径以Run目录的 `dual-instance-processes.json` 为准，不要按进程名批量停止。
 
-## 继续测试前的人工操作
+## 历史Run 10继续条件（现已完成，不得作为当前操作指令）
 
 1. 在下层管理界面（3001）替换渠道1为具有独立可用额度的OpenCodeGo账号，或等待原账号周额度重置。
 2. 对渠道1执行一次 `deepseek-v4-flash` 渠道测试，确认不再返回套餐/余额/周额度429。
@@ -87,7 +99,9 @@ Weekly usage limit reached. Resets in about 22 hours.
 4. 如后续还需恢复单实例测试，把同一账号变更同步到保留的 `one-api.db`；不要在报告或脚本中保存原始密钥。
 5. 通知测试模型继续；不要运行cleanup或rollback。
 
-## 后续自动化顺序
+## 历史高压计划（用户已取消，禁止执行）
+
+以下顺序仅为旧审计记录。用户已明确决定不执行真实1600 RPM、真实429后高压缓存迁移和三客户4800 RPM；其他模型不得根据本节启动这些测试。当前只允许继续低负载、确定性Mock、配置检查、健康检查和代码回归，除非用户以后重新明确授权高压测试。
 
 代码和测试工具在Run 10之后有可靠性修订，不能继续复用其输入Hash。恢复后创建新Run ID，并从Run 10继承77次请求和0.076434美元预算，然后：
 

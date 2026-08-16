@@ -2066,6 +2066,7 @@
     "footer.defaultCopyright": "版权所有。",
     "footer.new\u0061pi.projectAttributionSuffix": "版权所有，由项目贡献者设计与开发。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "对于 2025 年 5 月 10 日之后添加的渠道，在部署时无需从模型名称中移除 \".\"",
+    "For OpenCodeGo, ordinary RPM 429 responses only trigger a temporary cooldown when the RPM guard and Redis are available. Matching a failure keyword disables the actual account channel, while the upper New API channel is not disabled by downstream account 429 responses.": "对于 OpenCodeGo，只有在启用 RPM 保护且 Redis 可用时，普通 RPM 429 才会触发临时冷却；命中失败关键词会禁用实际账号渠道，而上层 New API 渠道不会因下层账号返回 429 而被禁用。",
     "For private deployments, format: https://fastgpt.run/api/openapi": "对于私有部署，格式为：https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "出于安全考虑，现有访问令牌无法再次显示。仅在需要新令牌时重新生成。",
     "Force a syntactically valid JSON response": "强制返回语法合法的 JSON",

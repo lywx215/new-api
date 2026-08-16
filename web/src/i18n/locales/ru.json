@@ -2066,6 +2066,7 @@
     "footer.defaultCopyright": "Все права защищены.",
     "footer.new\u0061pi.projectAttributionSuffix": "Все права защищены. Разработано участниками проекта.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Для каналов, добавленных после 10 мая 2025 г., не нужно удалять \".\" из имён моделей при развёртывании",
+    "For OpenCodeGo, ordinary RPM 429 responses only trigger a temporary cooldown when the RPM guard and Redis are available. Matching a failure keyword disables the actual account channel, while the upper New API channel is not disabled by downstream account 429 responses.": "Для OpenCodeGo обычные ответы RPM 429 вызывают временную паузу только при включенной защите RPM и доступном Redis. Совпадение с ключевым словом сбоя отключает канал соответствующей учетной записи, а вышестоящий канал New API остается включенным после ответа 429 нижестоящей учетной записи.",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Для частных развертываний, формат: https://fastgpt.run/api/openapi",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "В целях безопасности существующие токены доступа нельзя просмотреть повторно. Создавайте новый токен только при необходимости.",
     "Force a syntactically valid JSON response": "Принудительно возвращать синтаксически корректный JSON",

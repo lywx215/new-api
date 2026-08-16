@@ -89,15 +89,38 @@ const (
 )
 
 type NewAPIError struct {
-	Err              error
-	RelayError       any
-	skipRetry        bool
-	recordErrorLog   *bool
-	errorType        ErrorType
-	errorCode        ErrorCode
-	StatusCode       int
-	Metadata         json.RawMessage
-	retryAfterHeader string
+	Err                       error
+	RelayError                any
+	skipRetry                 bool
+	recordErrorLog            *bool
+	errorType                 ErrorType
+	errorCode                 ErrorCode
+	StatusCode                int
+	Metadata                  json.RawMessage
+	retryAfterHeader          string
+	originalHTTPStatusCode    int
+	hasOriginalHTTPStatusCode bool
+}
+
+// CaptureOriginalHTTPStatusCode records the current response status once so
+// internal policies can still classify the upstream response after a channel's
+// client-facing status-code mapping has been applied.
+func (e *NewAPIError) CaptureOriginalHTTPStatusCode() {
+	if e == nil || e.hasOriginalHTTPStatusCode {
+		return
+	}
+	e.originalHTTPStatusCode = e.StatusCode
+	e.hasOriginalHTTPStatusCode = true
+}
+
+func (e *NewAPIError) GetOriginalHTTPStatusCode() int {
+	if e == nil {
+		return 0
+	}
+	if e.hasOriginalHTTPStatusCode {
+		return e.originalHTTPStatusCode
+	}
+	return e.StatusCode
 }
 
 func (e *NewAPIError) SetRetryAfterHeader(value string) {
@@ -165,14 +188,28 @@ func (e *NewAPIError) MaskSensitiveError() string {
 	if e == nil {
 		return ""
 	}
-	if e.Err == nil {
-		return string(e.errorCode)
-	}
-	errStr := e.Err.Error()
 	if e.errorCode == ErrorCodeCountTokenFailed {
-		return errStr
+		if e.Err == nil {
+			return string(e.errorCode)
+		}
+		return e.Err.Error()
 	}
-	return kitutil.MaskSensitiveInfo(errStr)
+
+	message := ""
+	switch relayError := e.RelayError.(type) {
+	case OpenAIError:
+		message = relayError.Message
+	case ClaudeError:
+		message = relayError.Message
+	default:
+		if e.Err != nil {
+			message = e.Err.Error()
+		}
+	}
+	if message == "" {
+		message = string(e.errorCode)
+	}
+	return kitutil.MaskSensitiveInfo(message)
 }
 
 func (e *NewAPIError) MaskSensitiveErrorWithStatusCode() string {

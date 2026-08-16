@@ -2,6 +2,7 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
@@ -292,6 +294,120 @@ func TestResolveChannelTestUserIDUsesRequestUser(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, 2, userID)
+}
+
+func TestChannelTestPreservesUpstream429AndManualTestDoesNotDisable(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	originalMemoryCacheEnabled := common.MemoryCacheEnabled
+	originalAutomaticDisable := common.AutomaticDisableChannelEnabled
+	originalKeywords := append([]string(nil), operation_setting.AutomaticDisableKeywords...)
+	common.MemoryCacheEnabled = false
+	common.AutomaticDisableChannelEnabled = true
+	operation_setting.AutomaticDisableKeywords = []string{"enable usage from your available balance"}
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled = originalMemoryCacheEnabled
+		common.AutomaticDisableChannelEnabled = originalAutomaticDisable
+		operation_setting.AutomaticDisableKeywords = originalKeywords
+	})
+
+	const testUserID = 4101
+	require.NoError(t, db.Create(&model.User{
+		Id:       testUserID,
+		Username: "channel-test-user",
+		Password: "test-password",
+		Group:    "default",
+		Status:   common.UserStatusEnabled,
+		Quota:    1_000_000,
+		Setting:  `{"accept_unset_model_ratio_model":true}`,
+	}).Error)
+
+	requestPaths := make(chan string, 3)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestPaths <- r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "23")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"GoUsageLimitError","message":"Weekly usage limit reached. To continue, enable usage from your available balance"},"metadata":{"workspace":"wrk_channel_test_secret","limitName":"weekly"}}`))
+	}))
+	defer server.Close()
+
+	autoBan := 1
+	channel := &model.Channel{
+		Type:      constant.ChannelTypeOpenCodeGo,
+		Key:       "test-key",
+		Status:    common.ChannelStatusEnabled,
+		Name:      "OpenCodeGo channel test",
+		BaseURL:   common.GetPointer(server.URL),
+		Models:    "gpt-4o-mini",
+		Group:     "default",
+		AutoBan:   &autoBan,
+		TestModel: common.GetPointer("gpt-4o-mini"),
+	}
+	require.NoError(t, db.Create(channel).Error)
+
+	result := testChannel(context.Background(), channel, testUserID, "gpt-4o-mini", string(constant.EndpointTypeOpenAI), false)
+	assert.Equal(t, "/v1/chat/completions", <-requestPaths)
+	require.Error(t, result.localErr)
+	require.NotNil(t, result.newAPIError)
+	assert.Equal(t, http.StatusTooManyRequests, result.newAPIError.StatusCode)
+	assert.Equal(t, relaytypes.ErrorCode("unknown_error"), result.newAPIError.GetErrorCode())
+	assert.Equal(t, "23", result.newAPIError.GetRetryAfterHeader())
+	assert.Contains(t, result.newAPIError.Error(), "enable usage from your available balance")
+	assert.Contains(t, result.newAPIError.Error(), "wrk_channel_test_secret")
+	assert.NotContains(t, result.newAPIError.MaskSensitiveErrorWithStatusCode(), "wrk_channel_test_secret")
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "id", Value: fmt.Sprintf("%d", channel.Id)}}
+	ctx.Set("id", testUserID)
+	ctx.Request = httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/channel/test/%d", channel.Id), nil)
+
+	TestChannel(ctx)
+	assert.Equal(t, "/v1/chat/completions", <-requestPaths)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response struct {
+		Success   bool                 `json:"success"`
+		Message   string               `json:"message"`
+		ErrorCode relaytypes.ErrorCode `json:"error_code"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.False(t, response.Success)
+	assert.Equal(t, relaytypes.ErrorCode("unknown_error"), response.ErrorCode)
+	assert.Contains(t, response.Message, "enable usage from your available balance")
+
+	var storedChannel model.Channel
+	require.NoError(t, db.First(&storedChannel, channel.Id).Error)
+	assert.Equal(t, common.ChannelStatusEnabled, storedChannel.Status)
+
+	processorCalled := false
+	summary := performChannelTestsWithErrorProcessor(
+		context.Background(),
+		[]*model.Channel{channel},
+		testUserID,
+		true,
+		nil,
+		func(_ *gin.Context, channelError relaytypes.ChannelError, err *relaytypes.NewAPIError) {
+			processorCalled = true
+			assert.Equal(t, channel.Id, channelError.ChannelId)
+			assert.Equal(t, http.StatusTooManyRequests, err.StatusCode)
+			assert.Equal(t, relaytypes.ErrorCode("unknown_error"), err.GetErrorCode())
+			assert.Equal(t, "23", err.GetRetryAfterHeader())
+			assert.Contains(t, err.Error(), "enable usage from your available balance")
+			disableReason := err.MaskSensitiveErrorWithStatusCode()
+			assert.NotContains(t, disableReason, "wrk_channel_test_secret")
+			require.True(t, model.UpdateChannelStatus(channelError.ChannelId, channelError.UsingKey, common.ChannelStatusAutoDisabled, disableReason))
+		},
+	)
+	assert.Equal(t, "/v1/chat/completions", <-requestPaths)
+	assert.True(t, processorCalled)
+	assert.Equal(t, 1, summary.Tested)
+	assert.Equal(t, 1, summary.Failed)
+	assert.Equal(t, 1, summary.Disabled)
+
+	require.NoError(t, db.First(&storedChannel, channel.Id).Error)
+	assert.Equal(t, common.ChannelStatusAutoDisabled, storedChannel.Status)
+	assert.NotContains(t, storedChannel.OtherInfo, "wrk_channel_test_secret")
 }
 
 func TestSelectChannelsForAutomaticTestPassiveRecoveryOnlyUsesAutoDisabled(t *testing.T) {

@@ -69,6 +69,13 @@ func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewA
 	return err
 }
 
+func relayErrorLogPreview(err *types.NewAPIError) string {
+	if err == nil {
+		return ""
+	}
+	return common.LocalLogPreview(err.MaskSensitiveError())
+}
+
 func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	requestId := c.GetString(common.RequestIdKey)
@@ -92,7 +99,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	defer func() {
 		if newAPIError != nil {
-			logger.LogError(c, fmt.Sprintf("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
+			logger.LogError(c, fmt.Sprintf("relay error: %s", relayErrorLogPreview(newAPIError)))
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
 			applyRelayErrorHeaders(c, newAPIError)
 			switch relayFormat {
@@ -376,12 +383,22 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 }
 
 func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {
-	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.Error())))
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
-	if shouldAutoDisableChannelAfterRelayError(channelError, err) {
+	shouldDisable, autoDisableReason := shouldAutoDisableChannelAfterRelayError(channelError, err)
+	logger.LogError(c, fmt.Sprintf(
+		"channel error (channel #%d, channel type: %d, status code: %d, upstream status code: %d, auto-disable: %t, auto-disable reason: %s): %s",
+		channelError.ChannelId,
+		channelError.ChannelType,
+		err.StatusCode,
+		err.GetOriginalHTTPStatusCode(),
+		shouldDisable,
+		autoDisableReason,
+		common.LocalLogPreview(err.MaskSensitiveError()),
+	))
+	if shouldDisable {
 		gopool.Go(func() {
-			service.DisableChannel(channelError, err.ErrorWithStatusCode())
+			service.DisableChannel(channelError, err.MaskSensitiveErrorWithStatusCode())
 		})
 	}
 
@@ -422,17 +439,11 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 
 }
 
-func shouldAutoDisableChannelAfterRelayError(channelError types.ChannelError, err *types.NewAPIError) bool {
-	if err == nil || !channelError.AutoBan {
-		return false
+func shouldAutoDisableChannelAfterRelayError(channelError types.ChannelError, err *types.NewAPIError) (bool, service.AutoDisableReason) {
+	if !channelError.AutoBan {
+		return false, service.AutoDisableReasonChannelAutoBanDisabled
 	}
-	if channelError.ChannelType == constant.ChannelTypeOpenCodeGo && err.StatusCode == http.StatusTooManyRequests {
-		return false
-	}
-	if err.GetErrorCode() == types.ErrorCodeOpenCodeGoRPMLimit {
-		return false
-	}
-	return service.ShouldDisableChannel(err)
+	return service.ShouldDisableChannel(channelError.ChannelType, err)
 }
 
 func applyRelayErrorHeaders(c *gin.Context, err *types.NewAPIError) {
