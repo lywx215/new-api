@@ -1,13 +1,16 @@
 package oaichat
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/relayconvert/internal/convdiag"
 	kitutil "github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
+	"github.com/QuantumNous/new-api/relaykit/relayconvert/reasoning"
 	"github.com/samber/lo"
 )
 
@@ -73,7 +76,7 @@ func convertChatResponseFormatToResponsesText(reqFormat *dto.ResponseFormat) jso
 	return textRaw
 }
 
-func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*dto.OpenAIResponsesRequest, error) {
+func ChatCompletionsRequestToResponsesRequest(ctx context.Context, req *dto.GeneralOpenAIRequest) (*dto.OpenAIResponsesRequest, error) {
 	if req == nil {
 		return nil, errors.New("request is nil")
 	}
@@ -358,9 +361,8 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 	textRaw := convertChatResponseFormatToResponsesText(req.ResponseFormat)
 
 	maxOutputTokens := lo.FromPtrOr(req.MaxTokens, uint(0))
-	maxCompletionTokens := lo.FromPtrOr(req.MaxCompletionTokens, uint(0))
-	if maxCompletionTokens > maxOutputTokens {
-		maxOutputTokens = maxCompletionTokens
+	if req.MaxCompletionTokens != nil {
+		maxOutputTokens = *req.MaxCompletionTokens
 	}
 	// OpenAI Responses API rejects max_output_tokens < 16 when explicitly provided.
 	//if maxOutputTokens > 0 && maxOutputTokens < 16 {
@@ -380,6 +382,14 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 		presencePenaltyRaw, _ = kitutil.Marshal(req.PresencePenalty)
 	}
 
+	var promptCacheKeyRaw json.RawMessage
+	if req.PromptCacheKey != "" {
+		promptCacheKeyRaw, err = kitutil.Marshal(req.PromptCacheKey)
+		if err != nil {
+			return nil, fmt.Errorf("marshal prompt_cache_key: %w", err)
+		}
+	}
+
 	out := &dto.OpenAIResponsesRequest{
 		Model:                req.Model,
 		Input:                inputRaw,
@@ -396,34 +406,36 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 		ParallelToolCalls:    parallelToolCallsRaw,
 		Store:                req.Store,
 		Metadata:             req.Metadata,
+		PromptCacheKey:       promptCacheKeyRaw,
+		EnableThinking:       req.EnableThinking,
+		ThinkingBudget:       req.ThinkingBudget,
 		PromptCacheOptions:   req.PromptCacheOptions,
 		PromptCacheRetention: req.PromptCacheRetention,
 		SafetyIdentifier:     req.SafetyIdentifier,
-		EnableThinking:       req.EnableThinking,
-		ThinkingBudget:       req.ThinkingBudget,
-	}
-	if req.PromptCacheKey != "" {
-		out.PromptCacheKey, _ = kitutil.Marshal(req.PromptCacheKey)
 	}
 	if req.MaxTokens != nil || req.MaxCompletionTokens != nil {
 		out.MaxOutputTokens = lo.ToPtr(maxOutputTokens)
 	}
 
-	if len(req.Reasoning) > 0 {
-		var reasoning dto.Reasoning
-		if err := kitutil.Unmarshal(req.Reasoning, &reasoning); err != nil {
-			return nil, fmt.Errorf("invalid reasoning object: %w", err)
-		}
-		out.Reasoning = &reasoning
+	reasoningIntent, diagnostics, err := reasoning.FromOpenAIChat(req)
+	if err != nil {
+		return nil, reasoning.AsClientError(err)
 	}
-	if req.ReasoningEffort != "" && out.Reasoning == nil {
-		out.Reasoning = &dto.Reasoning{
-			Effort:  req.ReasoningEffort,
-			Summary: "detailed",
-		}
-	} else if req.ReasoningEffort != "" && out.Reasoning.Effort == "" {
-		out.Reasoning.Effort = req.ReasoningEffort
+	convdiag.Add(ctx, diagnostics...)
+	if err := reasoning.ApplyToOpenAIResponses(out, reasoningIntent); err != nil {
+		return nil, reasoning.AsClientError(err)
 	}
 
+	if len(req.Reasoning) > 0 {
+		var explicit dto.Reasoning
+		if err := kitutil.Unmarshal(req.Reasoning, &explicit); err != nil {
+			return nil, fmt.Errorf("invalid reasoning object: %w", err)
+		}
+		if out.Reasoning == nil {
+			out.Reasoning = &explicit
+		} else if explicit.Summary != "" {
+			out.Reasoning.Summary = explicit.Summary
+		}
+	}
 	return out, nil
 }

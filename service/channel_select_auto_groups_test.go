@@ -8,6 +8,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -200,7 +201,7 @@ func TestChannelSelectionFallsBackToLowerPriorityAfterHighPriorityExclusionWithA
 
 	for _, memoryCache := range []bool{false, true} {
 		common.MemoryCacheEnabled = memoryCache
-		channel, err := model.GetRandomSatisfiedChannelExcluding("default", modelName, 0, "/v1/chat/completions", map[int]struct{}{2251: {}})
+		channel, err := model.GetRandomSatisfiedChannelExcluding("default", modelName, 0, []dto.ChannelFilter{{Kind: dto.FilterRequestPath, RequestPath: "/v1/chat/completions"}}, map[int]struct{}{2251: {}})
 		require.NoError(t, err)
 		require.NotNil(t, channel)
 		assert.Equal(t, 2252, channel.Id)

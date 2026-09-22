@@ -48,7 +48,7 @@ func TestMigrateOpenCodeGoOfficialPricingPreservesLegacyOverridesAndIsIdempotent
 	assert.Equal(t, "ModelRatio", protected["glm-5.2"])
 	assert.NotContains(t, protected, "gpt-5.6-luna")
 	assert.True(t, billing_setting.OpenCodeGoOfficialDefaultsEnabled())
-	assert.Equal(t, billing_setting.BillingModeTieredExpr, billing_setting.GetBillingMode("hy3"))
+	assert.Equal(t, billing_setting.BillingModeTieredExpr, billing_setting.GetBillingModeForChannel("hy3", 99))
 
 	var mode Option
 	require.NoError(t, db.First(&mode, "key = ?", "billing_setting.billing_mode").Error)

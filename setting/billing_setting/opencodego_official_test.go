@@ -88,8 +88,8 @@ func TestOpenCodeGoOperatorModeOverridesOfficialDefault(t *testing.T) {
 	billingSetting.BillingExpr = map[string]string{}
 	SetOpenCodeGoOfficialDefaultsEnabled(true)
 
-	assert.Equal(t, BillingModeRatio, GetBillingMode("hy3"))
-	_, ok := GetBillingExpr("hy3")
+	assert.Equal(t, BillingModeRatio, GetBillingModeForChannel("hy3", 99))
+	_, ok := GetBillingExprForChannel("hy3", 99)
 	assert.False(t, ok)
 	assert.Equal(t, "operator", GetEffectiveBillingSource("hy3"))
 }
@@ -134,7 +134,8 @@ func TestPricingSyncKeepsOfficialDefaultsReadOnlyAndScoped(t *testing.T) {
 	syncData := GetPricingSyncData(map[string]any{})
 	modes, ok := syncData[BillingModeField].(map[string]string)
 	require.True(t, ok)
-	assert.Equal(t, map[string]string{"deepseek-v4-flash": BillingModeRatio}, modes)
+	assert.Equal(t, BillingModeRatio, modes["deepseek-v4-flash"])
+	assert.Equal(t, map[string]string{"deepseek-v4-flash": BillingModeRatio}, billingSetting.BillingMode)
 	assert.NotContains(t, modes, "hy3")
 
 	defaults, ok := syncData["official_billing_defaults"].(map[string]any)

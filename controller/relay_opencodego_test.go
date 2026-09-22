@@ -88,7 +88,7 @@ func TestProcessChannelErrorMasksSensitiveLogBody(t *testing.T) {
 		ChannelId:   17,
 		ChannelType: constant.ChannelTypeOpenCodeGo,
 		AutoBan:     false,
-	}, err)
+	}, err, nil)
 
 	logOutput := logBuffer.String()
 	assert.Contains(t, logOutput, "auto-disable reason: channel_auto_ban_disabled")
@@ -122,14 +122,14 @@ func TestOpenCodeGoSoftLimitSkipsType60Retry(t *testing.T) {
 		types.ErrorCodeOpenCodeGoRPMLimit,
 		http.StatusTooManyRequests,
 	)
-	assert.False(t, shouldRetry(ctx, controlledLimit, 3))
+	assert.False(t, service.ShouldRetryRelayError(ctx, controlledLimit, 3))
 
 	ordinaryLimit := types.NewErrorWithStatusCode(
 		errors.New("ordinary upstream limit"),
 		types.ErrorCodeBadResponseStatusCode,
 		http.StatusTooManyRequests,
 	)
-	assert.True(t, shouldRetry(ctx, ordinaryLimit, 3))
+	assert.True(t, service.ShouldRetryRelayError(ctx, ordinaryLimit, 3))
 }
 
 func TestType60ControlledLimitPreservesRetryAfterAndSkipsRetry(t *testing.T) {
@@ -145,7 +145,7 @@ func TestType60ControlledLimitPreservesRetryAfterAndSkipsRetry(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	assert.False(t, shouldRetry(ctx, err, 3))
+	assert.False(t, service.ShouldRetryRelayError(ctx, err, 3))
 	applyRelayErrorHeaders(ctx, err)
 	assert.Equal(t, "23", recorder.Header().Get("Retry-After"))
 }

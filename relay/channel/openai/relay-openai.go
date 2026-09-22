@@ -13,7 +13,6 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/relaykit/relayconvert"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 
@@ -120,12 +119,9 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	var capturedUsage *dto.Usage
 	var capturedInferenceCost *inferenceCostEvent
 	var lastStreamData string
-	var secondLastStreamData string // 存储倒数第二个stream data，用于音频模型
+	var secondLastStreamData string // 保留倒数第二个stream data；部分兼容网关把完整usage放在倒数第二个事件
 	seenStreamToolCalls := make(map[string]struct{})
 	var streamFunctionCallNames []string
-
-	// 检查是否为音频模型
-	isAudioModel := strings.Contains(strings.ToLower(model), "audio")
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		if lastStreamData != "" {
@@ -145,14 +141,13 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			if inferenceCost != nil {
 				capturedInferenceCost = inferenceCost
 			}
-			// 对音频模型，保存倒数第二个stream data
-			if isAudioModel && lastStreamData != "" {
+			if lastStreamData != "" {
 				secondLastStreamData = lastStreamData
 			}
 
 			lastStreamData = data
-			collectStreamFunctionCallNames(data, seenStreamToolCalls, &streamFunctionCallNames)
-			if err := processTokenData(info.RelayMode, data, &responseTextBuilder, &toolCount); err != nil {
+			observeStreamChoices(info, data, seenStreamToolCalls, &streamFunctionCallNames)
+			if err := processTokenData(info, data, &responseTextBuilder, &toolCount); err != nil {
 				logger.LogError(c, "error processing stream token data: "+err.Error())
 				sr.Error(err)
 			}
@@ -165,30 +160,36 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	} else if capturedInferenceCost != nil {
 		usage = usageFromInferenceCost(capturedInferenceCost)
 	}
-
-	// 对音频模型，从倒数第二个stream data中提取usage信息
-	if capturedUsage == nil && isAudioModel && secondLastStreamData != "" {
-		var streamResp struct {
-			Usage *dto.Usage `json:"usage"`
-		}
-		err := common.Unmarshal([]byte(secondLastStreamData), &streamResp)
-		if err == nil && streamResp.Usage != nil && service.ValidUsage(streamResp.Usage) {
-			usage = streamResp.Usage
-			containStreamUsage = true
-
-			if common.DebugEnabled {
-				logger.LogDebug(c, "Audio model usage extracted from second last SSE: PromptTokens=%d, CompletionTokens=%d, TotalTokens=%d, InputTokens=%d, OutputTokens=%d",
-					usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens,
-					usage.InputTokens, usage.OutputTokens)
-			}
-		}
-	}
+	info.StreamStatus.RequireTerminal()
 
 	// 处理最后的响应
 	shouldSendLastResp := true
 	if err := handleLastResponse(lastStreamData, &responseId, &createAt, &systemFingerprint, &model, &usage,
 		&containStreamUsage, info, &shouldSendLastResp); err != nil {
 		logger.LogError(c, fmt.Sprintf("error handling last response: %s, lastStreamData: [%s]", err.Error(), lastStreamData))
+	}
+
+	// 部分兼容网关把完整的累计usage附在倒数第二个事件上，随后发送一个空的最后事件。
+	// 仅当最后一个事件没有有效usage时，回退到倒数第二个事件的完整快照。
+	usageFrame := lastStreamData
+	if !containStreamUsage && secondLastStreamData != "" {
+		var streamResp struct {
+			Usage *dto.Usage `json:"usage"`
+		}
+		err := common.Unmarshal([]byte(secondLastStreamData), &streamResp)
+		if err == nil && streamResp.Usage != nil &&
+			streamResp.Usage.PromptTokens > 0 &&
+			(streamResp.Usage.CompletionTokens > 0 || streamResp.Usage.TotalTokens > 0) {
+			usage = dto.MergeUsageNonZero(usage, streamResp.Usage)
+			containStreamUsage = true
+			usageFrame = secondLastStreamData
+
+			if common.DebugEnabled {
+				logger.LogDebug(c, "usage extracted from second last SSE: PromptTokens=%d, CompletionTokens=%d, TotalTokens=%d, InputTokens=%d, OutputTokens=%d",
+					usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens,
+					usage.InputTokens, usage.OutputTokens)
+			}
+		}
 	}
 
 	if info.RelayFormat == types.RelayFormatOpenAI {
@@ -205,7 +206,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		usage.UsageSource = "estimated"
 	}
 
-	applyUsagePostProcessing(info, usage, common.StringToByteSlice(lastStreamData))
+	applyUsagePostProcessing(info, usage, common.StringToByteSlice(usageFrame))
 
 	for _, name := range streamFunctionCallNames {
 		info.CountBillableToolCall(dto.BuildInCallFunctionCall, name)
@@ -216,14 +217,22 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	return usage, nil
 }
 
-func collectStreamFunctionCallNames(data string, seen map[string]struct{}, names *[]string) {
+// observeStreamChoices collects billable function call names and records the
+// finish reason facts used by health sampling from one parsed chunk.
+func observeStreamChoices(info *relaycommon.RelayInfo, data string, seen map[string]struct{}, names *[]string) {
 	var streamResponse dto.ChatCompletionsStreamResponse
 	if err := common.UnmarshalJsonStr(data, &streamResponse); err != nil {
 		return
 	}
 	for _, choice := range streamResponse.Choices {
+		if choice.FinishReason != nil && *choice.FinishReason != "" {
+			if *choice.FinishReason == constant.FinishReasonContentFilter {
+				info.PerformanceBusinessRejection = true
+			}
+			info.StreamStatus.MarkCompleted()
+		}
 		for i, tc := range choice.Delta.ToolCalls {
-			name := tc.Function.Name
+			name := strings.TrimSpace(tc.Function.Name)
 			if name == "" {
 				continue
 			}
@@ -231,11 +240,30 @@ func collectStreamFunctionCallNames(data string, seen map[string]struct{}, names
 			if tc.Index != nil {
 				toolIdx = *tc.Index
 			}
-			key := fmt.Sprintf("%d-%d", choice.Index, toolIdx)
-			if _, ok := seen[key]; ok {
-				continue
+			fallbackKey := fmt.Sprintf("index\x00%d\x00%d\x00%s", choice.Index, toolIdx, name)
+			activeKey := fmt.Sprintf("active\x00%d\x00%d\x00%s", choice.Index, toolIdx, name)
+			callID := strings.TrimSpace(tc.ID)
+			if callID != "" {
+				idKey := fmt.Sprintf("id\x00%d\x00%s", choice.Index, callID)
+				if _, ok := seen[idKey]; ok {
+					continue
+				}
+				seen[idKey] = struct{}{}
+				seen[activeKey] = struct{}{}
+				if _, delayedID := seen[fallbackKey]; delayedID {
+					delete(seen, fallbackKey)
+					continue
+				}
+			} else {
+				if _, ok := seen[fallbackKey]; ok {
+					continue
+				}
+				if _, ok := seen[activeKey]; ok {
+					continue
+				}
+				seen[fallbackKey] = struct{}{}
+				seen[activeKey] = struct{}{}
 			}
-			seen[key] = struct{}{}
 			*names = append(*names, name)
 		}
 	}
@@ -275,8 +303,10 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 
+	info.ObserveResponseModel(simpleResponse.Model)
 	for _, choice := range simpleResponse.Choices {
 		if choice.FinishReason == constant.FinishReasonContentFilter {
+			info.PerformanceBusinessRejection = true
 			common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "openai_finish_reason=content_filter")
 			break
 		}
@@ -302,12 +332,13 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 				completionTokens += ctkm
 			}
 		}
-		simpleResponse.Usage = dto.Usage{
+		fallbackUsage := &dto.Usage{
 			PromptTokens:     info.GetEstimatePromptTokens(),
 			CompletionTokens: completionTokens,
 			TotalTokens:      info.GetEstimatePromptTokens() + completionTokens,
 			UsageSource:      "estimated",
 		}
+		simpleResponse.Usage = *fallbackUsage
 		usageModified = true
 	}
 
@@ -337,7 +368,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 			break
 		}
 	case types.RelayFormatClaude:
-		convertResult, err := relayconvert.ConvertResponse(c, info, types.RelayFormatClaude, &simpleResponse)
+		convertResult, err := service.ConvertResponse(c, info, types.RelayFormatClaude, &simpleResponse)
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 		}
@@ -347,7 +378,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		}
 		responseBody = claudeRespStr
 	case types.RelayFormatGemini:
-		convertResult, err := relayconvert.ConvertResponse(c, info, types.RelayFormatGemini, &simpleResponse)
+		convertResult, err := service.ConvertResponse(c, info, types.RelayFormatGemini, &simpleResponse)
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 		}

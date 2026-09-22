@@ -51,15 +51,15 @@ func (a affinityLeakTaskAdaptor) BuildRequestBody(*gin.Context, *relaycommon.Rel
 func (a affinityLeakTaskAdaptor) DoRequest(*gin.Context, *relaycommon.RelayInfo, io.Reader) (*http.Response, error) {
 	return nil, nil
 }
-func (a affinityLeakTaskAdaptor) DoResponse(*gin.Context, *http.Response, *relaycommon.RelayInfo) (string, []byte, *taskdto.TaskError) {
-	return "", nil, nil
+func (a affinityLeakTaskAdaptor) ParseResponse(*gin.Context, *http.Response, *relaycommon.RelayInfo) (*TaskSubmitResponse, *taskdto.TaskError) {
+	return nil, nil
 }
 func (a affinityLeakTaskAdaptor) GetModelList() []string { return nil }
 func (a affinityLeakTaskAdaptor) GetChannelName() string { return "test" }
-func (a affinityLeakTaskAdaptor) FetchTask(string, string, map[string]any, string) (*http.Response, error) {
+func (a affinityLeakTaskAdaptor) FetchTask(string, string, *model.Task, string) (*http.Response, error) {
 	return nil, nil
 }
-func (a affinityLeakTaskAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) {
+func (a affinityLeakTaskAdaptor) ParseTaskResult(*model.Task, *http.Response, []byte) (*relaycommon.TaskInfo, error) {
 	return nil, nil
 }
 
@@ -125,6 +125,19 @@ func TestDoRequestObservesOpenCodeGo429BeforeProtocolHandling(t *testing.T) {
 			assert.GreaterOrEqual(t, ttl, 8*time.Second)
 		})
 	}
+}
+
+func TestNewTaskAPIRequestInheritsClientCancellation(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	requestContext, cancel := context.WithCancel(context.Background())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(requestContext)
+
+	upstream, err := newTaskAPIRequest(c, "https://provider.example/tasks", nil)
+	require.NoError(t, err)
+	cancel()
+
+	require.ErrorIs(t, upstream.Context().Err(), context.Canceled)
 }
 
 func TestProcessHeaderOverride_ChannelTestSkipsPassthroughRules(t *testing.T) {
@@ -325,4 +338,15 @@ func TestProcessHeaderOverride_PassHeadersTemplateSetsRuntimeHeaders(t *testing.
 	require.Equal(t, "Codex CLI", upstreamReq.Header.Get("Originator"))
 	require.Equal(t, "sess-123", upstreamReq.Header.Get("Session_id"))
 	require.Empty(t, upstreamReq.Header.Get("X-Codex-Beta-Features"))
+}
+
+func TestToWebSocketURL(t *testing.T) {
+	for input, want := range map[string]string{
+		"https://api.openai.com/v1/responses":             "wss://api.openai.com/v1/responses",
+		"http://127.0.0.1:3000/v1/responses":              "ws://127.0.0.1:3000/v1/responses",
+		"wss://chatgpt.com/backend-api/codex/responses":   "wss://chatgpt.com/backend-api/codex/responses",
+		"ws://127.0.0.1:3000/backend-api/codex/responses": "ws://127.0.0.1:3000/backend-api/codex/responses",
+	} {
+		assert.Equal(t, want, toWebSocketURL(input), input)
+	}
 }

@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ChannelAffinitySection } from '../general/channel-affinity'
+import { OpenCodeGoAffinitySettings } from '../general/channel-affinity/opencodego-settings'
 import { IoNetDeploymentSettingsSection } from '../integrations/ionet-deployment-settings-section'
 import type { ModelSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
@@ -24,7 +24,6 @@ import { ClaudeSettingsCard } from './claude-settings-card'
 import { GeminiSettingsCard } from './gemini-settings-card'
 import { GlobalSettingsCard } from './global-settings-card'
 import { GrokSettingsCard } from './grok-settings-card'
-import { RoutingReliabilitySection } from './routing-reliability-section'
 
 function formatJsonForEditor(value: string, fallback: string) {
   const raw = (value ?? '').toString().trim()
@@ -65,30 +64,7 @@ const MODELS_SECTIONS = [
       />
     ),
   },
-  {
-    id: 'routing-reliability',
-    titleKey: 'Routing Reliability',
-    build: (settings: ModelSettings) => (
-      <RoutingReliabilitySection
-        defaultValues={{
-          RetryTimes: settings.RetryTimes,
-          ChannelDisableThreshold: settings.ChannelDisableThreshold,
-          AutomaticDisableChannelEnabled:
-            settings.AutomaticDisableChannelEnabled,
-          AutomaticEnableChannelEnabled: settings.AutomaticEnableChannelEnabled,
-          AutomaticDisableKeywords: settings.AutomaticDisableKeywords,
-          AutomaticDisableStatusCodes: settings.AutomaticDisableStatusCodes,
-          AutomaticRetryStatusCodes: settings.AutomaticRetryStatusCodes,
-          'monitor_setting.auto_test_channel_enabled':
-            settings['monitor_setting.auto_test_channel_enabled'],
-          'monitor_setting.auto_test_channel_minutes':
-            settings['monitor_setting.auto_test_channel_minutes'],
-          'monitor_setting.channel_test_mode':
-            settings['monitor_setting.channel_test_mode'],
-        }}
-      />
-    ),
-  },
+
   {
     id: 'gemini',
     titleKey: 'Gemini',
@@ -149,7 +125,7 @@ const MODELS_SECTIONS = [
     id: 'channel-affinity',
     titleKey: 'Channel Affinity',
     build: (settings: ModelSettings) => (
-      <ChannelAffinitySection
+      <OpenCodeGoAffinitySettings
         defaultValues={{
           'channel_affinity_setting.enabled':
             settings['channel_affinity_setting.enabled'],

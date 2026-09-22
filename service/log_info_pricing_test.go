@@ -28,6 +28,6 @@ func TestGenerateTextOtherInfoFreezesFinalPricingChannelAndSource(t *testing.T) 
 
 	other := GenerateTextOtherInfo(ctx, info, 0, 1, 0, 0, 0, 0, -1)
 
-	assert.Equal(t, "official", other["pricing_source"])
-	assert.Equal(t, 99, other["pricing_channel_type"])
+	assert.Equal(t, "official", other.Snapshot()["pricing_source"])
+	assert.Equal(t, 99, other.Snapshot()["pricing_channel_type"])
 }
